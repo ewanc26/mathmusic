@@ -1,6 +1,6 @@
 """Save and load projects as JSON files.
 
-Projects live in $MATHMUSIC_HOME/projects (default ~/.mathmusic/projects).
+Projects live in $MATHMUSIC_HOME/projects (default ~/.ewanc26/mathmusic/projects).
 Names are restricted to letters, digits, spaces, '-' and '_' so they map
 directly to file names without any path tricks.
 """
@@ -20,7 +20,7 @@ SUFFIX = ".json"
 
 
 def projects_dir() -> Path:
-    home = Path(os.environ.get("MATHMUSIC_HOME") or Path.home() / ".mathmusic")
+    home = Path(os.environ.get("MATHMUSIC_HOME") or Path.home() / ".ewanc26" / "mathmusic")
     return home / "projects"
 
 

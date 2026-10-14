@@ -9,7 +9,7 @@ mathmusic serve            # opens the DAW at http://127.0.0.1:8765
 ## The DAW
 
 - **Arrangement:** tracks of clips on a beat timeline in any time signature from 1/4 to 16/4. Drag clips to move them, including onto another track. Drag a clip's right edge to resize it, and double-click a lane to add one. Each lane shows its clips' curves, the track's rendered waveform, and its automation.
-- **Audio clips:** import WAV, MP3, FLAC, OGG, AIFF or M4A with the Audio button, or drop a file onto a lane. Samples are converted to 44.1 kHz stereo and stored once, by content, in `~/.mathmusic/assets`. Audio clips can be moved, trimmed (start offset and length), split and mixed like any other clip, and faded in and out with a `fade_curve` formula of the fade position (0 to 1).
+- **Audio clips:** import WAV, MP3, FLAC, OGG, AIFF or M4A with the Audio button, or drop a file onto a lane. Samples are converted to 44.1 kHz stereo and stored once, by content, in `~/.ewanc26/mathmusic/assets`. Audio clips can be moved, trimmed (start offset and length), split and mixed like any other clip, and faded in and out with a `fade_curve` formula of the fade position (0 to 1).
 - **Recording:** **Rec** (or R) records from your microphone while the project plays, so you can play along. The take lands as an audio clip where recording started, on the selected track. The browser asks for microphone permission the first time, and decoding the take needs ffmpeg.
 - **Clip editor:** the curve plotted against the scale's pitch lattice. Each horizontal line is a note, and each sample snaps to the nearest one. You set the expression, the x range, the number of notes, the start and length in beats, the rhythm, the swing (shuffle) amount, octave, range, gate and gain, invert, and an optional fixed y range.
 - **Tracks:** a sound (waveform, instrument or your own formula), an envelope over each note, volume, pan, mute and solo. The waveform's single cycle and the envelope are both plotted.
@@ -18,7 +18,7 @@ mathmusic serve            # opens the DAW at http://127.0.0.1:8765
 - **Mixer:** channel strips with faders, pan, mute and solo, and level meters that follow the playhead. Any track can also send to a **bus** (effect return) track, which runs its own effects and automation on the sum of its sends before joining the master.
 - **Transport:** play and pause, loop (drag on the ruler), a bar.beat position, follow-playhead, and zoom. A **metronome** (K) clicks on every beat and accents the first beat of each bar. The click is a decaying sine burst made with Web Audio, and it's never part of the render or the exports.
 - **Editing:** undo and redo for every change, copy, paste, duplicate, split at the playhead, and delete. Keyboard shortcuts are listed under `?`.
-- **Projects:** save and open by name, plus an automatic draft in the browser. Projects are stored as JSON in `~/.mathmusic/projects`, or in `$MATHMUSIC_HOME/projects` if that's set.
+- **Projects:** save and open by name, plus an automatic draft in the browser. Projects are stored as JSON in `~/.ewanc26/mathmusic/projects`, or in `$MATHMUSIC_HOME/projects` if that's set.
 - **Export:** WAV, MP3 and MIDI. The MIDI file uses the same notes you hear, with General MIDI programs chosen to resemble each sound.
 - **Publish:** upload the mix to plyr.fm. See below.
 
@@ -55,7 +55,7 @@ Formulas accept `+ - * / ^ %`, `x`, `pi`, `tau`, `e`, and functions such as `sin
 ## Command line
 
 ```bash
-mathmusic render ~/.mathmusic/projects/"My Song".json -o song.mp3   # render a saved project (.mp3, .wav or .mid)
+mathmusic render ~/.ewanc26/mathmusic/projects/"My Song".json -o song.mp3   # render a saved project (.mp3, .wav or .mid)
 mathmusic render song.json --stems out/           # one WAV per clip track, before the master chain
 mathmusic "sin(x)" "x^2/8" --wave bell -o sketch.mp3                # quick sketch from expressions, no project
 mathmusic instruments
