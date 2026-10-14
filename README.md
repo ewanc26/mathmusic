@@ -57,3 +57,7 @@ Uploads go through the [`plyrfm`](https://pypi.org/project/plyrfm/) SDK (`tracks
 ```bash
 .venv/bin/python -m pytest
 ```
+
+## Licence
+
+AGPL-3.0-or-later. See [LICENSE](LICENSE).
