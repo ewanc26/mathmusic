@@ -1117,6 +1117,18 @@ def test_cli_rejects_out_of_range_options(tmp_path):
         ["sin(x)", "--start", "nan", "--end", "2"],
         ["sin(x)", "--start", "0", "--end", "inf"],
         ["sin(x)", "--start", "2", "--end", "1"],
+        ["sin(x)", "--root", "200"],
+        ["sin(x)", "--root", "-5"],
+        ["sin(x)", "--root", "120", "--octaves", "4"],
+        ["sin(x)", "--bpm", "0.0001", "--samples", "2000"],
     ):
         assert main([*argv, "-o", str(tmp_path / "x.wav")]) == 2
     assert not (tmp_path / "x.wav").exists()
+
+
+def test_sketch_output_must_be_mp3_or_wav(tmp_path, capsys):
+    from mathmusic.cli import main
+
+    assert main(["sin(x)", "-o", str(tmp_path / "out.txt")]) == 2
+    assert "must end in .mp3 or .wav" in capsys.readouterr().err
+    assert not (tmp_path / "out.txt").exists()

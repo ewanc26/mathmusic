@@ -22,6 +22,9 @@ from mathmusic.scales import SCALES
 from mathmusic.synth import SAMPLE_RATE, encode_mp3, mix, write_wav
 
 
+SKETCH_MAX_SECONDS = 3600  # sketch renders are held in memory, so keep them to an hour
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mathmusic",
@@ -208,6 +211,15 @@ def main(argv: list[str] | None = None) -> int:
     if not 0 < args.step < math.inf:
         print("error: --step must be a finite number greater than 0", file=sys.stderr)
         return 2
+    if args.output.suffix.lower() not in (".mp3", ".wav"):
+        print(f"error: {args.output} must end in .mp3 or .wav", file=sys.stderr)
+        return 2
+    if not 0 <= args.root <= 127 or args.root + 12 * args.octaves > 127:
+        print("error: --root must be a MIDI note from 0 to 127, with the octaves above it also in that range", file=sys.stderr)
+        return 2
+    if args.samples * args.step * 60 / args.bpm > SKETCH_MAX_SECONDS:
+        print(f"error: that would render more than {SKETCH_MAX_SECONDS // 60} minutes; lower --samples or --step, or raise --bpm", file=sys.stderr)
+        return 2
     opts = Options(
         start=args.start,
         end=args.end,
@@ -235,12 +247,16 @@ def main(argv: list[str] | None = None) -> int:
         print("error: none of the expressions produced any defined points in that range", file=sys.stderr)
         return 2
 
-    with tempfile.TemporaryDirectory() as tmp:
-        wav = write_wav(Path(tmp) / "track.wav", stereo)
-        if output.suffix.lower() == ".wav":
-            wav.replace(output)
-        else:
-            encode_mp3(wav, output)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            wav = write_wav(Path(tmp) / "track.wav", stereo)
+            if output.suffix.lower() == ".wav":
+                wav.replace(output)
+            else:
+                encode_mp3(wav, output)
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+        print(f"error: could not write {output}: {exc}", file=sys.stderr)
+        return 2
     print(f"wrote {output} ({stereo.shape[0] / SAMPLE_RATE:.1f}s, {len(voices)} voice(s))")
 
     if args.plot:
