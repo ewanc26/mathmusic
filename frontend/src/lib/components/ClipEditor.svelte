@@ -101,7 +101,30 @@
           onlive={(v) => (clip.offset = v)}
         />
         <RangeField label="Gain" value={clip.gain} min={0} max={2} step={0.01} onlive={(v) => (clip.gain = v)} />
+        <NumberField
+          label="Fade in (beats)"
+          value={clip.fade_in}
+          min={0}
+          max={clip.length}
+          step={0.25}
+          onlive={(v) => (clip.fade_in = v)}
+        />
+        <NumberField
+          label="Fade out (beats)"
+          value={clip.fade_out}
+          min={0}
+          max={clip.length}
+          step={0.25}
+          onlive={(v) => (clip.fade_out = v)}
+        />
       </div>
+      <TextField
+        label="Fade shape (x runs 0 to 1 across the fade)"
+        value={clip.fade_curve}
+        placeholder="x  (linear); x*x  (slow start); sqrt(x)  (fast start)"
+        onlive={(v) => (clip.fade_curve = v.trim() ? v : "x")}
+      />
+      <Errors errors={errors.filter((e) => e.field === "fade_curve")} />
       {#if rendered?.kind === "audio" && rendered.seconds}
         <p class="hint">
           Sample length {rendered.seconds.toFixed(2)} s = {(rendered.seconds / transport.secondsPerBeat).toFixed(2)} beats
