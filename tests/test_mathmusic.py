@@ -162,6 +162,14 @@ def test_render_project_rejects_bad_options():
         render_project({"expressions": [{"src": "x"}], "options": {"scale": "nope"}})
 
 
+@pytest.mark.parametrize("options", [{"end": "nan"}, {"start": "-inf"}, {"end": "inf"}, {"end": "abc"}])
+def test_render_project_rejects_non_finite_range(options):
+    from mathmusic.server import render_project
+
+    with pytest.raises(ValueError):
+        render_project({"expressions": [{"src": "x"}], "options": options})
+
+
 def test_slope_rhythm_survives_undefined_samples():
     opts = Options(rhythm="slope", step_beats=1.0, octaves=1)
     steps = curve_to_steps(np.array([0.0, 1.0, 2.0, np.nan, 4.0, 4.0, 4.0, 4.0]), opts)

@@ -1010,6 +1010,16 @@ def test_mp3_failure_is_reported_as_json(api, monkeypatch):
 def test_cli_rejects_out_of_range_options(tmp_path):
     from mathmusic.cli import main
 
-    for argv in (["sin(x)", "--bpm", "0"], ["sin(x)", "--samples", "1"], ["sin(x)", "--octaves", "9"], ["sin(x)", "--step", "0"]):
+    for argv in (
+        ["sin(x)", "--bpm", "0"],
+        ["sin(x)", "--bpm", "inf"],
+        ["sin(x)", "--samples", "1"],
+        ["sin(x)", "--octaves", "9"],
+        ["sin(x)", "--step", "0"],
+        ["sin(x)", "--step", "inf"],
+        ["sin(x)", "--start", "nan", "--end", "2"],
+        ["sin(x)", "--start", "0", "--end", "inf"],
+        ["sin(x)", "--start", "2", "--end", "1"],
+    ):
         assert main([*argv, "-o", str(tmp_path / "x.wav")]) == 2
     assert not (tmp_path / "x.wav").exists()

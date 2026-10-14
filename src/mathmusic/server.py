@@ -105,6 +105,15 @@ def parse_options(raw: dict) -> Options:
             raise ValueError(f"{key} must be between {low} and {high}")
         return value
 
+    def finite(key: str, default: float) -> float:
+        try:
+            value = float(raw.get(key, default))
+        except (TypeError, ValueError):
+            raise ValueError(f"{key} must be a number") from None
+        if not math.isfinite(value):
+            raise ValueError(f"{key} must be a finite number")
+        return value
+
     samples = int(number("samples", 96, 2, MAX_SAMPLES))
     scale = str(raw.get("scale", "pentatonic"))
     if scale not in SCALES:
@@ -115,8 +124,8 @@ def parse_options(raw: dict) -> Options:
     pitch_mode = str(raw.get("pitch_mode", "shared"))
     if pitch_mode not in PITCH_MODES:
         raise ValueError(f"unknown pitch mode {pitch_mode!r}")
-    start = float(raw.get("start", 0.0))
-    end = float(raw.get("end", 4 * pi))
+    start = finite("start", 0.0)
+    end = finite("end", 4 * pi)
     if end <= start:
         raise ValueError("end must be greater than start")
 
