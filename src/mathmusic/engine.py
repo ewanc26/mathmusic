@@ -16,9 +16,9 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from mathmusic import dsp
+from mathmusic.assets import load_asset
 from mathmusic.composer import NoteEvent, Options, curve_to_steps, value_bounds
 from mathmusic.expr import Expression
-from mathmusic.assets import load_asset
 from mathmusic.project import EFFECT_SPECS, Clip, Project, Track, track_to_dict
 from mathmusic.synth import PEAK, SAMPLE_RATE, add_notes
 from mathmusic.waves import envelope_values, resolve, wavetable
@@ -150,7 +150,7 @@ def _apply_fades(segment: np.ndarray, clip: Clip, spb: float, sample_rate: int, 
     position = np.arange(n) / max(n - 1, 1)  # 0 at the start of the clip, 1 at the end
     gain = np.ones(n)
     try:
-        shape = lambda u: np.clip(Expression(clip.fade_curve).evaluate(u), 0.0, 1.0)  # noqa: E731
+        shape = lambda u: np.clip(Expression(clip.fade_curve).evaluate(u), 0.0, 1.0)
         if clip.fade_in > 0:
             fade = clip.fade_in * spb * sample_rate
             head = np.minimum(np.arange(n) / max(fade, 1.0), 1.0)

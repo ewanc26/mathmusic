@@ -149,7 +149,7 @@ def eq(x: np.ndarray, freq: Param, gain_db: Param, q: Param, sample_rate: int) -
     for start in range(0, len(x), FILTER_BLOCK):
         end = min(start + FILTER_BLOCK, len(x))
         mid = (start + end) // 2
-        pick = lambda v: v[mid] if isinstance(v, np.ndarray) else v  # noqa: E731
+        pick = lambda v: v[mid] if isinstance(v, np.ndarray) else v
         b, a = _peaking_coefficients(float(pick(freq)), float(pick(gain_db)), float(pick(q)), sample_rate)
         out[start:end], state = lfilter(b, a, x[start:end], axis=0, zi=state)
     return out
