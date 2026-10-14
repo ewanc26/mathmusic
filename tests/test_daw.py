@@ -611,6 +611,19 @@ def test_import_audio_normalises_and_dedupes(tmp_path, monkeypatch):
         assets.import_audio(b"not audio at all", "junk.wav")
 
 
+def test_wav_without_a_sample_rate_is_a_clear_error():
+    import struct
+
+    from mathmusic import assets
+
+    data = b"\x00\x00" * 100
+    fmt = struct.pack("<HHIIHH", 1, 2, 0, 0, 4, 16)  # PCM, stereo, rate 0
+    body = b"WAVE" + b"fmt " + struct.pack("<I", len(fmt)) + fmt + b"data" + struct.pack("<I", len(data)) + data
+    # the built-in WAV reader, used when ffmpeg isn't installed
+    with pytest.raises(assets.AssetError, match="sample rate"):
+        assets._read_wav(b"RIFF" + struct.pack("<I", len(body)) + body)
+
+
 def test_audio_clip_plays_its_sample_at_its_position(tmp_path, monkeypatch):
     from mathmusic import assets
 
