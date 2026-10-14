@@ -408,6 +408,13 @@ def test_render_project_rejects_non_list_expressions(expressions):
 
     with pytest.raises(ValueError, match="must be a list"):
         render_project({"expressions": expressions})
+@pytest.mark.parametrize("kind", [["lowpass"], {"type": "delay"}, 3, None])
+def test_effect_type_must_be_a_known_name(kind):
+    from mathmusic.project import ProjectError, parse_project
+
+    data = {"tracks": [{"id": "t1", "sound": "sine", "effects": [{"type": kind}], "clips": []}]}
+    with pytest.raises(ProjectError, match="type must be one of"):
+        parse_project(data)
 
 
 def test_instrument_catalogue_endpoint(http_server):
