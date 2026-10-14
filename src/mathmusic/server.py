@@ -7,6 +7,7 @@ CLI, so what you see in the graph is exactly what gets played and published.
 from __future__ import annotations
 
 import json
+import math
 import mimetypes
 import os
 import shutil
@@ -83,9 +84,23 @@ def _number_or_none(value: float) -> float | None:
     return float(value) if np.isfinite(value) else None
 
 
+def _json_safe(value):
+    """Replace non-finite floats with null so responses are always valid JSON."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def parse_options(raw: dict) -> Options:
     def number(key: str, default: float, low: float, high: float) -> float:
-        value = float(raw.get(key, default))
+        try:
+            value = float(raw.get(key, default))
+        except (TypeError, ValueError):
+            raise ValueError(f"{key} must be a number") from None
         if not low <= value <= high:
             raise ValueError(f"{key} must be between {low} and {high}")
         return value
@@ -120,22 +135,32 @@ def parse_options(raw: dict) -> Options:
 
 
 def render_project(payload: dict) -> dict:
-    opts = parse_options(payload.get("options") or {})
+    options = payload.get("options") or {}
+    if not isinstance(options, dict):
+        raise ValueError("options must be an object")
+    opts = parse_options(options)
     expressions = payload.get("expressions") or []
 
     errors: list[dict] = []
     active: list[tuple[int, str, str | None, bool]] = []
     for index, item in enumerate(expressions):
+        if not isinstance(item, dict):
+            errors.append({"index": index, "error": "expression entries must be objects"})
+            continue
         source = str(item.get("src", "")).strip()
         if not source or not item.get("enabled", True):
             continue
+        waveform = item.get("waveform")
+        if waveform is not None and not isinstance(waveform, str):
+            errors.append({"index": index, "error": "waveform must be text"})
+            continue
         try:
             Expression(source)
-            resolve(item.get("waveform"), index)  # validates the sound before the whole render fails
+            resolve(waveform, index)  # validates the sound before the whole render fails
         except ValueError as exc:  # ExpressionError is a ValueError
             errors.append({"index": index, "error": str(exc)})
             continue
-        active.append((index, source, item.get("waveform"), bool(item.get("invert", False))))
+        active.append((index, source, waveform, bool(item.get("invert", False))))
 
     response: dict = {"errors": errors, "voices": [], "audio": None, "duration": 0.0}
     if not active:
@@ -298,9 +323,12 @@ def plot_formula(payload: dict) -> dict:
     formula = str(payload.get("formula", ""))
     if len(formula) > MAX_FORMULA:
         raise ValueError(f"formula is longer than {MAX_FORMULA} characters")
-    start = float(payload.get("start", 0.0))
-    end = float(payload.get("end", 1.0))
-    points = int(payload.get("points", 200))
+    try:
+        start = float(payload.get("start", 0.0))
+        end = float(payload.get("end", 1.0))
+        points = int(payload.get("points", 200))
+    except (TypeError, ValueError):
+        raise ValueError("start, end and points must be numbers") from None
     if not (np.isfinite(start) and np.isfinite(end)) or end <= start:
         raise ValueError("end must be greater than start")
     if not 2 <= points <= MAX_PLOT_POINTS:
@@ -450,7 +478,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _static(self, relative: str) -> None:
         root = WEB_DIR.resolve()
-        target = (root / unquote(relative)).resolve()
+        try:
+            target = (root / unquote(relative)).resolve()
+        except (ValueError, OSError):  # e.g. a NUL byte in the path
+            return self.send_error(404)
         if not target.is_relative_to(root) or not target.is_file():
             if relative == "index.html":
                 return self._json(503, {"error": "the UI is not built; run `pnpm build` in frontend/"})
@@ -462,7 +493,10 @@ class Handler(BaseHTTPRequestHandler):
         wav = STORE.get(render_id)
         if wav is None or ext not in ("wav", "mp3"):
             return self.send_error(404)
-        target = wav if ext == "wav" else _ensure_mp3(render_id, wav)
+        try:
+            target = wav if ext == "wav" else _ensure_mp3(render_id, wav)
+        except RuntimeError as exc:  # e.g. ffmpeg is missing
+            return self._json(502, {"error": str(exc)})
         self._file(target, content_type="audio/wav" if ext == "wav" else "audio/mpeg")
 
     def _file(self, path: Path, content_type: str | None = None) -> None:
@@ -494,7 +528,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _json(self, code: int, body: dict) -> None:
-        data = json.dumps(body).encode()
+        data = json.dumps(_json_safe(body)).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))

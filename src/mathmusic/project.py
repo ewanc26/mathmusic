@@ -243,8 +243,11 @@ def _formula(raw: dict, key: str, where: str) -> str | None:
     return _text(raw, key, "", MAX_FORMULA, where).strip()
 
 
-def _flag(raw: dict, key: str, default: bool) -> bool:
-    return bool(raw.get(key, default))
+def _flag(raw: dict, key: str, default: bool, where: str) -> bool:
+    value = raw.get(key, default)
+    if not isinstance(value, bool):
+        raise ProjectError(f"{where}.{key} must be true or false")
+    return value
 
 
 def _identifier(raw: dict, where: str) -> str:
@@ -282,7 +285,7 @@ def parse_effect(raw: dict, where: str) -> Effect:
             params[name] = _formula(given, name, f"{where}.params") or spec[1]
         else:
             params[name] = _number(given, name, spec[1], spec[2], spec[3], f"{where}.params")
-    return Effect(type=kind, params=params, bypass=_flag(raw, "bypass", False))
+    return Effect(type=kind, params=params, bypass=_flag(raw, "bypass", False, where))
 
 
 def parse_clip(raw: dict, where: str) -> Clip:
@@ -296,7 +299,7 @@ def parse_clip(raw: dict, where: str) -> Clip:
         x_end=_number(raw, "x_end", 2 * pi, -1e6, 1e6, where),
         notes=_integer(raw, "notes", 32, 1, LIMITS["notes_per_clip"], where),
         rhythm=_text(raw, "rhythm", "uniform", 16, where),
-        invert=_flag(raw, "invert", False),
+        invert=_flag(raw, "invert", False, where),
         octave=_integer(raw, "octave", 0, -3, 3, where),
         octaves=_integer(raw, "octaves", 2, 1, 4, where),
         y_min=_optional_number(raw, "y_min", where),
@@ -342,8 +345,8 @@ def parse_track(raw: dict, where: str) -> Track:
         envelope=_formula(raw, "envelope", where),
         volume_db=_number(raw, "volume_db", 0.0, -60.0, 12.0, where),
         pan=_number(raw, "pan", 0.0, -1.0, 1.0, where),
-        mute=_flag(raw, "mute", False),
-        solo=_flag(raw, "solo", False),
+        mute=_flag(raw, "mute", False, where),
+        solo=_flag(raw, "solo", False, where),
         gain_automation=_formula(automation, "gain", f"{where}.automation"),
         pan_automation=_formula(automation, "pan", f"{where}.automation"),
     )
@@ -353,7 +356,7 @@ def parse_track(raw: dict, where: str) -> Track:
     track.clips = [
         parse_clip(c, f"{where}.clips[{i}]") for i, c in enumerate(_list(raw, "clips", LIMITS["clips_per_track"], where))
     ]
-    track.bus = _flag(raw, "bus", False)
+    track.bus = _flag(raw, "bus", False, where)
     track.sends = []
     for i, send in enumerate(_list(raw, "sends", LIMITS["tracks"], where)):
         bus = send.get("bus")
@@ -383,12 +386,12 @@ def parse_project(raw: dict) -> Project:
         beats_per_bar=_integer(raw, "beats_per_bar", 4, 1, 16, "project"),
         root=_text(raw, "root", "C4", 4, "project"),
         scale=_text(raw, "scale", "pentatonic", 32, "project"),
-        loop_enabled=_flag(raw, "loop_enabled", False),
+        loop_enabled=_flag(raw, "loop_enabled", False, "project"),
         loop_start=_number(raw, "loop_start", 0.0, 0.0, LIMITS["length_beats"], "project"),
         loop_end=_number(raw, "loop_end", 16.0, 0.0, LIMITS["length_beats"], "project"),
         master=Master(
             volume_db=_number(master_raw, "volume_db", 0.0, -60.0, 12.0, "master"),
-            normalize=_flag(master_raw, "normalize", True),
+            normalize=_flag(master_raw, "normalize", True, "master"),
             effects=[
                 parse_effect(e, f"master.effects[{i}]")
                 for i, e in enumerate(_list(master_raw, "effects", LIMITS["effects"], "master"))

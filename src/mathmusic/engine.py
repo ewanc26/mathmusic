@@ -35,6 +35,7 @@ def peaks(stereo: np.ndarray | None, samples_per_bucket: int, scale: float = 1.0
         return []
     step = max(1, samples_per_bucket)
     level = np.abs(stereo).max(axis=1) * scale
+    level = np.where(np.isfinite(level), level, 0.0)  # never send NaN/Inf to the UI
     count = int(np.ceil(len(level) / step))
     level = np.pad(level, (0, count * step - len(level)))
     return np.round(level.reshape(count, step).max(axis=1), 4).tolist()
@@ -160,6 +161,16 @@ def _apply_fades(segment: np.ndarray, clip: Clip, spb: float, sample_rate: int, 
             gain *= shape(tail)
     except ValueError as exc:
         errors.append({"track": track_id, "clip": clip.id, "field": "fade_curve", "error": str(exc)})
+        return segment
+    if not np.isfinite(gain).all():  # e.g. sqrt(x-0.2): defined on the 16-point probe but not over [0,1]
+        errors.append(
+            {
+                "track": track_id,
+                "clip": clip.id,
+                "field": "fade_curve",
+                "error": f"fade curve {clip.fade_curve!r} is undefined somewhere in the clip",
+            }
+        )
         return segment
     return segment * gain[:, None]
 
@@ -378,7 +389,27 @@ def render(project: Project, sample_rate: int = SAMPLE_RATE) -> ProjectRender:
         if audible and bus_mix.any():
             beats = np.arange(total) / sample_rate / spb
             bus_mix = apply_chain(bus_mix, track.effects, {"track": track.id, "clip": None}, errors, spb, sample_rate, beats)
-            bus_mix = bus_mix * db_to_gain(track.volume_db)
+            gain: np.ndarray | float = db_to_gain(track.volume_db)
+            pan: np.ndarray | float = track.pan
+            if track.gain_automation:
+                try:
+                    gain = gain * np.clip(_automation(track.gain_automation, beats), 0.0, 4.0)
+                except ValueError as exc:
+                    errors.append({"track": track.id, "clip": None, "field": "automation.gain", "error": str(exc)})
+            if track.pan_automation:
+                try:
+                    pan = np.clip(track.pan + _automation(track.pan_automation, beats), -1.0, 1.0)
+                except ValueError as exc:
+                    errors.append({"track": track.id, "clip": None, "field": "automation.pan", "error": str(exc)})
+            angle = (np.asarray(pan) + 1.0) * np.pi / 4  # equal-power balance; unity at centre
+            left, right = np.cos(angle) * np.sqrt(2), np.sin(angle) * np.sqrt(2)
+            # a constant pan gives shape (2,) that broadcasts over the stereo bus; an automated one gives (total, 2)
+            balance = np.stack([left, right], axis=1) if np.ndim(left) else np.array([left, right])
+            if isinstance(gain, np.ndarray):
+                balance = balance * gain[:, None]
+            else:
+                balance = balance * gain
+            bus_mix = bus_mix * balance
             mix += bus_mix
             rendered[index] = TrackRender(stereo=bus_mix.astype(np.float32), clips=[], errors=[])
         rows[index] = {"id": track.id, "sound": "", "audible": audible, "clips": [], "bus": True}

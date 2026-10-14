@@ -938,3 +938,96 @@ def test_stems_match_the_mix_when_there_is_one_track():
     stems = engine.render_stems(project, sample_rate=SR)
     mix = engine.render(project, sample_rate=SR)
     assert np.abs(stems["t1"] - mix.stereo).max() < 1e-5
+
+
+# ---------------------------------------------------------------- robustness
+
+
+def test_boolean_fields_reject_non_booleans():
+    with pytest.raises(ProjectError, match="true or false"):
+        parse_project(small_project(tracks=[{"id": "t1", "clips": [], "mute": "false"}]))
+    with pytest.raises(ProjectError, match="true or false"):
+        parse_project(small_project(tracks=[{"id": "t1", "clips": [], "solo": 0}]))
+    with pytest.raises(ProjectError, match="true or false"):
+        parse_project(small_project(master={"normalize": "false"}))
+    with pytest.raises(ProjectError, match="true or false"):
+        parse_project(small_project(tracks=[{"id": "t1", "clips": [], "bus": "yes"}]))
+    with pytest.raises(ProjectError, match="true or false"):
+        parse_project(small_project(tracks=[{"id": "t1", "clips": [], "effects": [{"type": "lowpass", "bypass": "no"}]}]))
+
+
+def test_non_finite_fade_curve_is_reported_and_audio_stays_finite(tmp_path, monkeypatch):
+    from mathmusic import assets
+
+    monkeypatch.setenv("MATHMUSIC_HOME", str(tmp_path))
+    asset = assets.import_audio(wav_bytes(seconds=1.0), "tone.wav")["id"]
+    data = small_project(master={"normalize": False})
+    data["tracks"][0]["clips"] = [
+        {"id": "a1", "kind": "audio", "asset": asset, "start": 0, "length": 2, "fade_in": 1.0, "fade_curve": "sqrt(x-0.2)"}
+    ]
+    result = engine.render(parse_project(data))
+    assert np.isfinite(result.stereo).all()
+    assert any(problem.get("field") == "fade_curve" for problem in result.errors)
+
+
+def test_peaks_never_return_non_finite():
+    assert engine.peaks(np.array([[float("nan")], [float("inf")]]), 1) == [0.0, 0.0]
+
+
+def test_bus_pan_is_applied():
+    def render_pan(pan):
+        data = small_project(master={"normalize": False}, tracks=[
+            {"id": "t1", "sound": "sine", "volume_db": 0.0, "sends": [{"bus": "b1", "level": 1.0}],
+             "clips": [{"id": "c1", "expression": "0", "notes": 1, "length": 4, "octaves": 1, "y_min": 0, "y_max": 1}]},
+            {"id": "b1", "bus": True, "pan": pan, "volume_db": 0.0, "clips": []},
+        ])
+        result = engine.render(parse_project(data), sample_rate=SR)
+        return float(np.abs(result.stereo[:, 0]).max()), float(np.abs(result.stereo[:, 1]).max())
+
+    left_dominant = render_pan(-1.0)
+    right_dominant = render_pan(1.0)
+    assert left_dominant[0] > left_dominant[1]
+    assert right_dominant[1] > right_dominant[0]
+
+
+def test_bus_gain_automation_is_applied():
+    def render(automation):
+        data = small_project(master={"normalize": False}, tracks=[
+            {"id": "t1", "sound": "sine", "sends": [{"bus": "b1", "level": 1.0}],
+             "clips": [{"id": "c1", "expression": "0", "notes": 1, "length": 4, "octaves": 1, "y_min": 0, "y_max": 1}]},
+            {"id": "b1", "bus": True, "volume_db": 0.0, "automation": automation, "clips": []},
+        ])
+        return float(np.abs(engine.render(parse_project(data), sample_rate=SR).stereo).max())
+
+    assert render({"gain": "0"}) < render({})  # a bus automated to silence only leaves the direct path
+
+
+def test_api_type_errors_are_400(api):
+    status, body = api("/api/render", "POST", {"options": {"samples": None}, "expressions": [{"src": "x"}]})
+    assert status == 400 and "samples" in body["error"]
+    status, body = api("/api/plot", "POST", {"formula": "x", "points": None})
+    assert status == 400
+    status, body = api("/api/render", "POST", {"expressions": [5, {"src": "x", "waveform": 7}]})
+    assert status == 200
+    assert [problem["index"] for problem in body["errors"]] == [0, 1]
+
+
+def test_mp3_failure_is_reported_as_json(api, monkeypatch):
+    import mathmusic.server as server
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("ffmpeg is needed for MP3 output")
+
+    monkeypatch.setattr(server, "encode_mp3", boom)
+    status, body = api("/api/project/render", "POST", {"project": small_project()})
+    url = body["audio"]["url"].replace(".wav", ".mp3")
+    status, body = api(url)
+    assert status == 502 and "ffmpeg" in body["error"]
+
+
+def test_cli_rejects_out_of_range_options(tmp_path):
+    from mathmusic.cli import main
+
+    for argv in (["sin(x)", "--bpm", "0"], ["sin(x)", "--samples", "1"], ["sin(x)", "--octaves", "9"], ["sin(x)", "--step", "0"]):
+        assert main([*argv, "-o", str(tmp_path / "x.wav")]) == 2
+    assert not (tmp_path / "x.wav").exists()
