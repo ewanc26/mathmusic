@@ -270,15 +270,21 @@ def main(argv: list[str] | None = None) -> int:
 
         title = args.title or " + ".join(args.expressions)
         tags = {t.strip() for t in args.tags.split(",") if t.strip()} if args.tags else None
+        # plyr.fm takes MP3, so a WAV output is encoded to a temporary MP3 for the upload
         try:
-            track_id = publish_to_plyr(
-                output,
-                title,
-                album=args.album,
-                tags=tags,
-                description=args.description,
-            )
-        except (RuntimeError, ValueError) as exc:
+            with tempfile.TemporaryDirectory() as tmp:
+                mp3 = output
+                if output.suffix.lower() != ".mp3":
+                    mp3 = Path(tmp) / "upload.mp3"
+                    encode_mp3(output, mp3)
+                track_id = publish_to_plyr(
+                    mp3,
+                    title,
+                    album=args.album,
+                    tags=tags,
+                    description=args.description,
+                )
+        except (RuntimeError, ValueError, OSError, subprocess.CalledProcessError) as exc:
             print(f"publish failed: {exc}", file=sys.stderr)
             return 1
         print(f"published to plyr.fm as track {track_id}")

@@ -1126,6 +1126,25 @@ def test_cli_rejects_out_of_range_options(tmp_path):
     assert not (tmp_path / "x.wav").exists()
 
 
+def test_sketch_publish_uploads_an_mp3_even_for_a_wav_output(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    from mathmusic import cli
+
+    uploaded = {}
+
+    def fake_publish(path, title, **kwargs):
+        uploaded["path"] = path
+        return 7
+
+    monkeypatch.setitem(sys.modules, "mathmusic.publish", types.SimpleNamespace(publish_to_plyr=fake_publish))
+    out = tmp_path / "song.wav"
+    assert cli.main(["sin(x)", "--publish", "--samples", "8", "-o", str(out)]) == 0
+    assert uploaded["path"].suffix == ".mp3"
+    assert out.exists() and out.suffix == ".wav"  # the WAV is kept beside the upload
+
+
 def test_sketch_output_must_be_mp3_or_wav(tmp_path, capsys):
     from mathmusic.cli import main
 
