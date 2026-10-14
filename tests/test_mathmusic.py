@@ -43,6 +43,24 @@ def test_undefined_points_are_nan_or_inf_not_errors():
     assert values[2] == pytest.approx(0.0)
 
 
+def test_division_by_zero_is_an_undefined_point_not_an_error():
+    values = Expression("1/(x-1)").evaluate(np.array([0.0, 1.0, 2.0]))
+    assert values[0] == pytest.approx(-1.0)
+    assert np.isinf(values[1])
+    assert Expression("1/0").evaluate(0.0) == np.inf
+
+
+@pytest.mark.parametrize("source", ["max(x)", "sin(x, 1)", "clip(x, 1)", "mod(x)", "sin(x=1)"])
+def test_wrong_argument_count_is_rejected_before_evaluation(source):
+    with pytest.raises(ExpressionError, match="argument"):
+        Expression(source)
+
+
+def test_two_argument_functions_evaluate():
+    assert Expression("clip(x, 0, 0.5)").evaluate(np.array([-1.0, 0.25, 2.0])).tolist() == [0.0, 0.25, 0.5]
+    assert Expression("max(x, 0.5)").evaluate(np.array([0.0, 1.0])).tolist() == [0.5, 1.0]
+
+
 def test_pitch_table_covers_octaves_and_ends_on_tonic():
     pitches = pitch_table("major", 60, 1)
     assert pitches == [60, 62, 64, 65, 67, 69, 71, 72]

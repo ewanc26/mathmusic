@@ -37,6 +37,9 @@ FUNCTIONS = {
     "clip": np.clip,
 }
 CONSTANTS = {"pi": np.pi, "tau": 2 * np.pi, "e": np.e}
+# Argument counts, checked before evaluation so a bad call is rejected up front.
+ARITY = {name: 1 for name in FUNCTIONS}
+ARITY.update({"mod": 2, "min": 2, "max": 2, "clip": 3})
 
 _ALLOWED_NODES = (
     ast.Expression,
@@ -59,6 +62,17 @@ _ALLOWED_NODES = (
 
 class ExpressionError(ValueError):
     """Raised when an expression cannot be parsed or is not allowed."""
+
+
+class _Floats(ast.NodeTransformer):
+    """Wrap every numeric literal in float64 so arithmetic follows numpy rules.
+
+    Python's own `1/0` raises ZeroDivisionError; numpy gives inf or nan, which
+    the engine treats as an undefined point, like `1/x` at x = 0.
+    """
+
+    def visit_Constant(self, node: ast.Constant) -> ast.Call:
+        return ast.Call(func=ast.Name(id="_float", ctx=ast.Load()), args=[node], keywords=[])
 
 
 class Expression:
@@ -84,6 +98,10 @@ class Expression:
                 if not isinstance(node.func, ast.Name) or node.func.id not in FUNCTIONS:
                     name = ast.unparse(node.func)
                     raise ExpressionError(f"unknown function {name!r} in {source!r}")
+                if node.keywords or len(node.args) != ARITY[node.func.id]:
+                    raise ExpressionError(
+                        f"{node.func.id} takes {ARITY[node.func.id]} argument(s) in {source!r}"
+                    )
                 call_names.add(id(node.func))
 
         for node in ast.walk(tree):
@@ -91,12 +109,13 @@ class Expression:
                 if node.id != "x" and node.id not in CONSTANTS:
                     raise ExpressionError(f"unknown name {node.id!r} in {source!r}")
 
+        tree = ast.fix_missing_locations(_Floats().visit(tree))
         self._code = compile(tree, "<expression>", "eval")
 
     def evaluate(self, x: np.ndarray | float) -> np.ndarray:
         """Evaluate over x. Returns an array shaped like x (NaN/inf where undefined)."""
         x = np.asarray(x, dtype=float)
-        env = {"x": x, **CONSTANTS, **FUNCTIONS}
+        env = {"x": x, "_float": np.float64, **CONSTANTS, **FUNCTIONS}
         with np.errstate(all="ignore"):
             result = eval(self._code, {"__builtins__": {}}, env)
         return np.broadcast_to(np.asarray(result, dtype=float), x.shape).copy()

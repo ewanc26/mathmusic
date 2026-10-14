@@ -196,6 +196,17 @@ def test_bad_clip_formula_is_reported_and_others_still_play():
     assert result.stereo.size and np.abs(result.stereo).max() > 0
 
 
+@pytest.mark.parametrize("expression", ["max(x)", "sin(x, 2)"])
+def test_formula_errors_that_are_not_value_errors_are_contained(expression):
+    data = small_project()
+    data["tracks"][0]["clips"].append(
+        {"id": "c3", "start": 4, "length": 4, "expression": expression, "notes": 4}
+    )
+    result = engine.render(parse_project(data), sample_rate=SR)
+    assert any(error["clip"] == "c3" for error in result.errors)
+    assert np.abs(result.stereo).max() > 0
+
+
 def test_mute_and_solo():
     data = small_project()
     data["tracks"].append(
