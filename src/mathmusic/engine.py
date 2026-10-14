@@ -17,7 +17,7 @@ import numpy as np
 
 from mathmusic import dsp
 from mathmusic.composer import NoteEvent, Options, curve_to_steps, value_bounds
-from mathmusic.expr import Expression
+from mathmusic.expr import compile_expression
 from mathmusic.assets import load_asset
 from mathmusic.project import EFFECT_SPECS, Clip, Project, Track, track_to_dict
 from mathmusic.synth import PEAK, SAMPLE_RATE, add_notes
@@ -57,7 +57,7 @@ class ClipRender:
 def render_clip(clip: Clip, project: Project) -> ClipRender:
     """Sample the clip's curve and turn it into steps placed on the timeline."""
     x = np.linspace(clip.x_start, clip.x_end, clip.notes)
-    y = Expression(clip.expression).evaluate(x)
+    y = compile_expression(clip.expression).evaluate(x)
     opts = Options(
         start=clip.x_start,
         end=clip.x_end,
@@ -86,7 +86,7 @@ def render_clip(clip: Clip, project: Project) -> ClipRender:
 def _automation(formula: str, beats: np.ndarray) -> np.ndarray:
     """Evaluate a formula of the beat at control rate and interpolate to every sample."""
     coarse = beats[::CONTROL_STEP]
-    values = Expression(formula).evaluate(coarse)
+    values = compile_expression(formula).evaluate(coarse)
     if not np.isfinite(values).all():
         raise ValueError(f"automation {formula!r} is undefined somewhere in the song")
     return np.interp(beats, coarse, values)
@@ -150,7 +150,7 @@ def _apply_fades(segment: np.ndarray, clip: Clip, spb: float, sample_rate: int, 
     position = np.arange(n) / max(n - 1, 1)  # 0 at the start of the clip, 1 at the end
     gain = np.ones(n)
     try:
-        shape = lambda u: np.clip(Expression(clip.fade_curve).evaluate(u), 0.0, 1.0)  # noqa: E731
+        shape = lambda u: np.clip(compile_expression(clip.fade_curve).evaluate(u), 0.0, 1.0)  # noqa: E731
         if clip.fade_in > 0:
             fade = clip.fade_in * spb * sample_rate
             head = np.minimum(np.arange(n) / max(fade, 1.0), 1.0)

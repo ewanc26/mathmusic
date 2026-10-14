@@ -37,6 +37,17 @@ def test_rejects_unsafe_or_unknown_input(source):
         Expression(source)
 
 
+def test_compiled_expressions_are_shared_but_failures_are_not_cached():
+    from mathmusic.expr import compile_expression
+
+    first = compile_expression("sin(x) + 1")
+    assert compile_expression("sin(x) + 1") is first  # rendering loops reuse the parse
+    assert np.allclose(first.evaluate(np.array([0.0])), [1.0])
+    for _ in range(2):  # a formula that cannot run raises every time, never a stale result
+        with pytest.raises(ExpressionError):
+            compile_expression("max(x)")
+
+
 def test_undefined_points_are_nan_or_inf_not_errors():
     values = Expression("log(x)").evaluate(np.array([-1.0, 0.0, 1.0]))
     assert not np.isfinite(values[0]) and not np.isfinite(values[1])

@@ -15,7 +15,7 @@ from math import cos, pi, sin
 import numpy as np
 from scipy.signal import lfilter
 
-from mathmusic.expr import Expression
+from mathmusic.expr import compile_expression
 
 
 def _shift(x: np.ndarray, delay: int) -> np.ndarray:
@@ -60,7 +60,7 @@ def allpass(x: np.ndarray, delay: int, gain: float) -> np.ndarray:
 
 
 def shaper(x: np.ndarray, formula: str, mix: Param) -> np.ndarray:
-    shaped = Expression(formula).evaluate(x)
+    shaped = compile_expression(formula).evaluate(x)
     shaped = np.nan_to_num(shaped, nan=0.0, posinf=0.0, neginf=0.0)
     mix = _per_sample(mix, x)
     return (1 - mix) * x + mix * shaped

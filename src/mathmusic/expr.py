@@ -8,6 +8,7 @@ lambdas, imports, other names) is rejected before evaluation.
 from __future__ import annotations
 
 import ast
+from functools import lru_cache
 
 import numpy as np
 
@@ -131,3 +132,12 @@ class Expression:
 
     def __repr__(self) -> str:
         return f"Expression({self.source!r})"
+
+
+@lru_cache(maxsize=512)
+def compile_expression(source: str) -> Expression:
+    """A cached Expression for rendering loops, which evaluate the same formulas many times.
+
+    Failures are not cached: a bad formula raises ExpressionError on every call.
+    """
+    return Expression(source)
