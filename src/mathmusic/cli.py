@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import subprocess
 import sys
 import tempfile
@@ -188,11 +189,17 @@ def main(argv: list[str] | None = None) -> int:
     if not 1 <= args.octaves <= 4:
         print("error: --octaves must be between 1 and 4", file=sys.stderr)
         return 2
-    if args.bpm <= 0:
-        print("error: --bpm must be greater than 0", file=sys.stderr)
+    if not (math.isfinite(args.start) and math.isfinite(args.end)):
+        print("error: --start and --end must be finite numbers", file=sys.stderr)
         return 2
-    if args.step <= 0:
-        print("error: --step must be greater than 0", file=sys.stderr)
+    if args.end <= args.start:
+        print("error: --end must be greater than --start", file=sys.stderr)
+        return 2
+    if not 0 < args.bpm < math.inf:
+        print("error: --bpm must be a finite number greater than 0", file=sys.stderr)
+        return 2
+    if not 0 < args.step < math.inf:
+        print("error: --step must be a finite number greater than 0", file=sys.stderr)
         return 2
     opts = Options(
         start=args.start,
