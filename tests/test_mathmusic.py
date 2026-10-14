@@ -361,6 +361,15 @@ def test_server_reports_bad_sound_per_expression(http_server):
     assert result["errors"][0]["index"] == 1
 
 
+@pytest.mark.parametrize("kind", [["lowpass"], {"type": "delay"}, 3, None])
+def test_effect_type_must_be_a_known_name(kind):
+    from mathmusic.project import ProjectError, parse_project
+
+    data = {"tracks": [{"id": "t1", "sound": "sine", "effects": [{"type": kind}], "clips": []}]}
+    with pytest.raises(ProjectError, match="type must be one of"):
+        parse_project(data)
+
+
 def test_instrument_catalogue_endpoint(http_server):
     base, _ = http_server
     status, body = _request(f"{base}/api/instruments")
