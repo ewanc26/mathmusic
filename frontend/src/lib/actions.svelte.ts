@@ -31,7 +31,11 @@ export function deleteClip(): void {
 export function duplicateClip(): void {
   const found = daw.clip(daw.selection.clip);
   if (!found) return;
-  const copy: Clip = { ...$state.snapshot(found.clip), id: uid("c"), start: found.clip.start + found.clip.length };
+  const copy: Clip = {
+    ...$state.snapshot(found.clip),
+    id: uid("c"),
+    start: firstFreeBeat(found.track, found.clip.start + found.clip.length, found.clip.length),
+  };
   daw.edit(() => found.track.clips.push(copy));
   daw.select(found.track.id, copy.id);
 }
@@ -49,7 +53,8 @@ export function pasteClip(): void {
   const track = daw.selectedTrack ?? daw.project.tracks[0];
   if (!clipboard || !track) return;
   const selected = daw.selectedClip;
-  const start = selected ? selected.start + selected.length : Math.floor(transport.beat);
+  const from = selected ? selected.start + selected.length : Math.floor(transport.beat);
+  const start = firstFreeBeat(track, from, clipboard.length);
   const clip: Clip = { ...structuredClone(clipboard), id: uid("c"), start };
   daw.edit(() => track.clips.push(clip));
   daw.select(track.id, clip.id);
