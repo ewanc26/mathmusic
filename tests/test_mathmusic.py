@@ -402,6 +402,12 @@ def test_plot_rejects_infinite_point_count():
 
     with pytest.raises(ValueError, match="must be numbers"):
         plot_formula({"formula": "x", "points": float("inf")})
+@pytest.mark.parametrize("expressions", [-1, 2.5, "sin(x)", {"src": "x"}])
+def test_render_project_rejects_non_list_expressions(expressions):
+    from mathmusic.server import render_project
+
+    with pytest.raises(ValueError, match="must be a list"):
+        render_project({"expressions": expressions})
 
 
 def test_instrument_catalogue_endpoint(http_server):
