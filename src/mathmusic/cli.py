@@ -12,6 +12,8 @@ import tempfile
 from math import pi
 from pathlib import Path
 
+import numpy as np
+
 from mathmusic.composer import Options, build_voices
 from mathmusic.expr import ExpressionError
 from mathmusic.scales import SCALES
@@ -74,6 +76,12 @@ def render_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="mathmusic render", description="Render a saved DAW project to audio.")
     parser.add_argument("project", type=Path, help="project .json file (saved from the UI)")
     parser.add_argument("-o", "--output", type=Path, help="output .mp3, .wav or .mid (default: .mp3 next to the project)")
+    parser.add_argument(
+        "--stems",
+        type=Path,
+        metavar="DIR",
+        help="write one WAV per clip track into DIR instead of a mix (track output before the master chain)",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -81,6 +89,30 @@ def render_main(argv: list[str]) -> int:
     except (OSError, json.JSONDecodeError, ProjectError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+
+    if args.stems is not None:
+        import re
+
+        from mathmusic.synth import SAMPLE_RATE
+
+        stems = engine.render_stems(project)
+        args.stems.mkdir(parents=True, exist_ok=True)
+        written = 0
+        for track in project.tracks:
+            if track.bus or track.id not in stems:
+                continue
+            audio = stems[track.id]
+            if not audio.size or not np.abs(audio).any():
+                continue
+            safe = re.sub(r"[^A-Za-z0-9_-]+", "-", track.name).strip("-") or track.id
+            path = args.stems / f"{safe}.wav"
+            write_wav(path, audio, SAMPLE_RATE)
+            written += 1
+            print(f"wrote {path}")
+        if not written:
+            print("error: no track is audible to export as a stem", file=sys.stderr)
+            return 2
+        return 0
 
     if args.output is not None and args.output.suffix.lower() in (".mid", ".midi"):
         from mathmusic.midi import project_to_midi

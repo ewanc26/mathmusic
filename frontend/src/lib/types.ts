@@ -33,11 +33,21 @@ export interface Clip {
   // audio clips
   asset: string | null;
   offset: number;
+  fade_in: number;
+  fade_out: number;
+  fade_curve: string;
+  // curve clips
+  swing: number;
 }
 
 export interface Automation {
   gain: string | null;
   pan: string | null;
+}
+
+export interface Send {
+  bus: string;
+  level: number;
 }
 
 export interface Track {
@@ -52,6 +62,9 @@ export interface Track {
   automation: Automation;
   effects: Effect[];
   clips: Clip[];
+  /** an effect return: plays what other tracks send to it, holds no clips */
+  bus: boolean;
+  sends: Send[];
 }
 
 export interface Master {

@@ -1,5 +1,6 @@
 <!-- The selected track's sound (waveform, instrument or formula), envelope and mix settings. -->
 <script lang="ts">
+  import { X } from "@lucide/svelte";
   import { daw } from "$lib/daw.svelte";
   import type { Track } from "$lib/types";
   import Check from "./fields/Check.svelte";
@@ -112,12 +113,72 @@
       <div class="flex flex-wrap items-center gap-2">
         <Check label="Mute" checked={track.mute} onchange={(v) => (track.mute = v)} />
         <Check label="Solo" checked={track.solo} onchange={(v) => (track.solo = v)} />
+        <Check
+          label="Bus (effect return)"
+          checked={track.bus}
+          onchange={(v) => (track.bus = v)}
+          title="A bus plays what other tracks send to it, holds no clips, and cannot send onward"
+        />
         <span class="flex-1"></span>
         <button class="btn sm" type="button" disabled={index === 0} onclick={() => move(-1)}>Move up</button>
         <button class="btn sm" type="button" disabled={index === daw.project.tracks.length - 1} onclick={() => move(1)}
           >Move down</button
         >
       </div>
+      {#if !track.bus}
+        <div class="mt-3 border-t border-line pt-2">
+          <div class="mb-1.5 text-[11px] tracking-widest text-muted uppercase">Sends</div>
+          {#each track.sends as send, i (send.bus + i)}
+            <div class="mb-1.5 flex items-center gap-2 text-xs">
+              <select
+                class="input flex-1"
+                value={send.bus}
+                onchange={(e) => daw.edit(() => (send.bus = e.currentTarget.value))}
+                aria-label="Send destination"
+              >
+                {#each daw.project.tracks.filter((t) => t.bus) as bus (bus.id)}
+                  <option value={bus.id}>{bus.name}</option>
+                {/each}
+              </select>
+              <input
+                class="w-24"
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={send.level}
+                aria-label="Send level"
+                oninput={(e) => daw.live(() => (send.level = Number(e.currentTarget.value)))}
+                onchange={daw.settle}
+              />
+              <output class="readout w-10 text-right">{Math.round(send.level * 100)}%</output>
+              <button
+                class="icon-btn sm"
+                type="button"
+                title="Remove send"
+                aria-label="Remove send"
+                onclick={() => daw.edit(() => track.sends.splice(i, 1))}><X size={11} /></button
+              >
+            </div>
+          {:else}
+            <p class="hint mb-1.5">No sends. Add one to route this track to a bus.</p>
+          {/each}
+          {#if daw.project.tracks.some((t) => t.bus)}
+            <button
+              class="btn sm"
+              type="button"
+              onclick={() =>
+                daw.edit(() => {
+                  const buses = daw.project.tracks.filter((t) => t.bus).map((t) => t.id);
+                  const free = buses.find((b) => !track.sends.some((s) => s.bus === b));
+                  if (free) track.sends.push({ bus: free, level: 0.5 });
+                })}>+ Send</button
+            >
+          {:else}
+            <p class="hint">Make a track a bus (above) to route sends to it.</p>
+          {/if}
+        </div>
+      {/if}
     </div>
     <div class="flex min-w-0 flex-col gap-3">
       <div>

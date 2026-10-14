@@ -128,6 +128,66 @@ def reverb(x: np.ndarray, size: float, damping: float, mix: Param, sample_rate: 
     return (1 - mix) * x + mix * wet
 
 
+def _peaking_coefficients(freq: float, gain_db: float, q: float, sample_rate: int):
+    """RBJ cookbook peaking EQ: a bell of `gain_db` around `freq`, width set by `q`."""
+    a = 10 ** (gain_db / 40)
+    w0 = 2 * pi * min(freq, sample_rate * 0.45) / sample_rate
+    alpha = sin(w0) / (2 * q)
+    c = cos(w0)
+    b = np.array([1 + alpha * a, -2 * c, 1 - alpha * a])
+    den = np.array([1 + alpha / a, -2 * c, 1 - alpha / a])
+    return b / den[0], den / den[0]
+
+
+def eq(x: np.ndarray, freq: Param, gain_db: Param, q: Param, sample_rate: int) -> np.ndarray:
+    """A peaking band. Constant parameters use one filter; automated ones are re-tuned per block."""
+    if not any(isinstance(v, np.ndarray) for v in (freq, gain_db, q)):
+        b, a = _peaking_coefficients(float(freq), float(gain_db), float(q), sample_rate)
+        return lfilter(b, a, x, axis=0)
+    out = np.empty_like(x, dtype=np.float64)
+    state = np.zeros((2,) + x.shape[1:])
+    for start in range(0, len(x), FILTER_BLOCK):
+        end = min(start + FILTER_BLOCK, len(x))
+        mid = (start + end) // 2
+        pick = lambda v: v[mid] if isinstance(v, np.ndarray) else v  # noqa: E731
+        b, a = _peaking_coefficients(float(pick(freq)), float(pick(gain_db)), float(pick(q)), sample_rate)
+        out[start:end], state = lfilter(b, a, x[start:end], axis=0, zi=state)
+    return out
+
+
+def compressor(
+    x: np.ndarray,
+    threshold_db: Param,
+    ratio: float,
+    attack_ms: float,
+    release_ms: float,
+    makeup_db: float,
+    sample_rate: int,
+) -> np.ndarray:
+    """Feed-forward compressor on the peak level of both channels.
+
+    The level follows the input with separate attack and release smoothing;
+    above the threshold the gain drops so that every `ratio` dB of input above
+    it yields 1 dB of output. Makeup gain is applied after. Because the
+    detector trails each peak, a steady sine comes out up to about 1 dB above
+    the ideal ratio, which is the usual behaviour of a peak detector.
+    """
+    level = np.abs(x).max(axis=1)
+    attack = np.exp(-1.0 / max(attack_ms * 1e-3 * sample_rate, 1e-9))
+    release = np.exp(-1.0 / max(release_ms * 1e-3 * sample_rate, 1e-9))
+    smooth = np.empty_like(level)
+    current = 0.0
+    for n, value in enumerate(level):  # one-pole smoother; a scalar loop is fine at these sizes
+        coefficient = attack if value > current else release
+        current = coefficient * current + (1 - coefficient) * value
+        smooth[n] = current
+    with np.errstate(divide="ignore"):
+        level_db = 20 * np.log10(np.maximum(smooth, 1e-9))
+    over = np.maximum(level_db - threshold_db, 0.0)
+    gain_db = -over * (1 - 1 / ratio) + makeup_db
+    return x * (10 ** (gain_db / 20))[:, None]
+
+
 def apply_effect(x: np.ndarray, kind: str, params: dict, sample_rate: int, seconds_per_beat: float) -> np.ndarray:
     """Apply one effect. Number params are floats, or per-sample arrays when automated."""
     if kind == "shaper":
@@ -139,4 +199,16 @@ def apply_effect(x: np.ndarray, kind: str, params: dict, sample_rate: int, secon
         return delay(x, samples, params["feedback"], params["mix"])
     if kind == "reverb":
         return reverb(x, float(params["size"]), float(params["damping"]), params["mix"], sample_rate)
+    if kind == "eq":
+        return eq(x, params["freq"], params["gain"], params["q"], sample_rate)
+    if kind == "compressor":
+        return compressor(
+            x,
+            params["threshold"],
+            float(params["ratio"]),
+            float(params["attack"]),
+            float(params["release"]),
+            float(params["makeup"]),
+            sample_rate,
+        )
     raise ValueError(f"unknown effect {kind!r}")

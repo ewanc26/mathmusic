@@ -53,6 +53,18 @@ EFFECT_SPECS: dict[str, dict[str, tuple]] = {
         "damping": ("number", 0.4, 0.0, 0.99),
         "mix": ("number", 0.25, 0.0, 1.0),
     },
+    "eq": {  # one parametric (peaking) band
+        "freq": ("number", 1000.0, 20.0, 20000.0),
+        "gain": ("number", 0.0, -24.0, 24.0),  # dB
+        "q": ("number", 1.0, 0.1, 10.0),
+    },
+    "compressor": {
+        "threshold": ("number", -18.0, -60.0, 0.0),  # dB
+        "ratio": ("number", 4.0, 1.0, 20.0),
+        "attack": ("number", 10.0, 0.1, 200.0),  # ms
+        "release": ("number", 120.0, 5.0, 2000.0),  # ms
+        "makeup": ("number", 0.0, -12.0, 24.0),  # dB
+    },
 }
 
 # Number params that may instead be a formula of the beat (x = song position in beats)
@@ -65,6 +77,10 @@ AUTOMATABLE = {
     ("delay", "feedback"),
     ("delay", "mix"),
     ("reverb", "mix"),
+    ("eq", "freq"),
+    ("eq", "gain"),
+    ("eq", "q"),
+    ("compressor", "threshold"),
 }
 
 CLIP_KINDS = ("curve", "audio")
@@ -74,6 +90,16 @@ _ASSET = re.compile(r"[0-9a-f]{64}")  # sha256 of the imported audio
 
 class ProjectError(ValueError):
     """The project dict is malformed or exceeds a limit."""
+
+
+def _check_formula(formula: str, where: str) -> None:
+    """Reject a formula the expression parser would refuse, at load time rather than render time."""
+    from mathmusic.expr import Expression, ExpressionError
+
+    try:
+        Expression(formula)
+    except ExpressionError as exc:
+        raise ProjectError(f"{where}: {exc}") from None
 
 
 @dataclass
@@ -104,10 +130,20 @@ class Clip:
     kind: str = "curve"  # "curve" plays y = f(x); "audio" plays an imported sample
     asset: str | None = None  # audio clips: id of the imported sample
     offset: float = 0.0  # audio clips: beats skipped at the start of the sample
+    swing: float = 0.0  # curve clips: every second step is delayed by this fraction of a step
+    fade_in: float = 0.0  # audio clips: beats
+    fade_out: float = 0.0  # audio clips: beats
+    fade_curve: str = "x"  # fade shape, a formula of x from 0 (silent) to 1 (full)
 
     @property
     def end(self) -> float:
         return self.start + self.length
+
+
+@dataclass
+class Send:
+    bus: str  # id of a bus track
+    level: float = 0.5  # 0 to 1, taken after the track's fader and effects
 
 
 @dataclass
@@ -124,6 +160,8 @@ class Track:
     pan_automation: str | None = None  # added to pan, as a formula of the beat
     effects: list[Effect] = field(default_factory=list)
     clips: list[Clip] = field(default_factory=list)
+    bus: bool = False  # an effect return: plays what other tracks send to it, holds no clips
+    sends: list[Send] = field(default_factory=list)
 
 
 @dataclass
@@ -267,7 +305,12 @@ def parse_clip(raw: dict, where: str) -> Clip:
         gain=_number(raw, "gain", 1.0, 0.0, 2.0, where),
         kind=_text(raw, "kind", "curve", 8, where),
         offset=_number(raw, "offset", 0.0, 0.0, LIMITS["length_beats"], where),
+        swing=_number(raw, "swing", 0.0, 0.0, 0.45, where),
+        fade_in=_number(raw, "fade_in", 0.0, 0.0, LIMITS["length_beats"], where),
+        fade_out=_number(raw, "fade_out", 0.0, 0.0, LIMITS["length_beats"], where),
+        fade_curve=_formula(raw, "fade_curve", where) or "x",
     )
+    _check_formula(clip.fade_curve, f"{where}.fade_curve")
     if clip.kind not in CLIP_KINDS:
         raise ProjectError(f"{where}.kind must be one of {', '.join(CLIP_KINDS)}")
     if clip.kind == "audio":
@@ -310,6 +353,17 @@ def parse_track(raw: dict, where: str) -> Track:
     track.clips = [
         parse_clip(c, f"{where}.clips[{i}]") for i, c in enumerate(_list(raw, "clips", LIMITS["clips_per_track"], where))
     ]
+    track.bus = _flag(raw, "bus", False)
+    track.sends = []
+    for i, send in enumerate(_list(raw, "sends", LIMITS["tracks"], where)):
+        bus = send.get("bus")
+        if not isinstance(bus, str) or not _ID.fullmatch(bus):
+            raise ProjectError(f"{where}.sends[{i}].bus must be a track id")
+        track.sends.append(Send(bus=bus, level=_number(send, "level", 0.5, 0.0, 1.0, f"{where}.sends[{i}]")))
+    if track.bus and track.clips:
+        raise ProjectError(f"{where} is a bus; buses hold no clips")
+    if track.bus and track.sends:
+        raise ProjectError(f"{where} is a bus; buses cannot send (that could feed back)")
     return track
 
 
@@ -356,6 +410,14 @@ def parse_project(raw: dict) -> Project:
     ids = [t.id for t in project.tracks] + [c.id for t in project.tracks for c in t.clips]
     if len(ids) != len(set(ids)):
         raise ProjectError("track and clip ids must be unique")
+    buses = {t.id for t in project.tracks if t.bus}
+    for index, track in enumerate(project.tracks):
+        targets = [send.bus for send in track.sends]
+        if len(targets) != len(set(targets)):
+            raise ProjectError(f"tracks[{index}] sends to the same bus twice")
+        for send in track.sends:
+            if send.bus not in buses:
+                raise ProjectError(f"tracks[{index}] sends to {send.bus!r}, which is not a bus track")
     total_notes = sum(c.notes for t in project.tracks for c in t.clips if c.kind == "curve")
     if total_notes > LIMITS["total_notes"]:
         raise ProjectError(f"the project has {total_notes} notes; the limit is {LIMITS['total_notes']}")
@@ -393,6 +455,10 @@ def clip_to_dict(clip: Clip) -> dict:
         "kind": clip.kind,
         "asset": clip.asset,
         "offset": clip.offset,
+        "swing": clip.swing,
+        "fade_in": clip.fade_in,
+        "fade_out": clip.fade_out,
+        "fade_curve": clip.fade_curve,
     }
 
 
@@ -409,6 +475,8 @@ def track_to_dict(track: Track) -> dict:
         "automation": {"gain": track.gain_automation, "pan": track.pan_automation},
         "effects": [effect_to_dict(e) for e in track.effects],
         "clips": [clip_to_dict(c) for c in track.clips],
+        "bus": track.bus,
+        "sends": [{"bus": send.bus, "level": send.level} for send in track.sends],
     }
 
 

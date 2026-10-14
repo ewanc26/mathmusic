@@ -34,6 +34,10 @@ export function newClip(start: number, overrides: Partial<Clip> = {}): Clip {
     gate: 0.9,
     asset: null,
     offset: 0,
+    fade_in: 0,
+    fade_out: 0,
+    fade_curve: "x",
+    swing: 0,
     ...overrides,
   };
 }
@@ -55,6 +59,8 @@ export function newTrack(index: number, overrides: Partial<Track> = {}): Track {
     automation: { gain: null, pan: null },
     effects: [],
     clips: [],
+    bus: false,
+    sends: [],
     ...overrides,
   };
 }
@@ -82,10 +88,16 @@ function upgrade(project: Project): Project {
   project.beats_per_bar ??= 4;
   for (const track of project.tracks) {
     track.automation ??= { gain: null, pan: null };
+    track.bus ??= false;
+    track.sends ??= [];
     for (const clip of track.clips) {
       clip.kind ??= "curve";
       clip.asset ??= null;
       clip.offset ??= 0;
+      clip.fade_in ??= 0;
+      clip.fade_out ??= 0;
+      clip.fade_curve ??= "x";
+      clip.swing ??= 0;
     }
   }
   return project;
