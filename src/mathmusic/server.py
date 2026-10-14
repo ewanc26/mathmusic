@@ -140,6 +140,8 @@ def render_project(payload: dict) -> dict:
         raise ValueError("options must be an object")
     opts = parse_options(options)
     expressions = payload.get("expressions") or []
+    if not isinstance(expressions, list):
+        raise ValueError("expressions must be a list")
 
     errors: list[dict] = []
     active: list[tuple[int, str, str | None, bool]] = []

@@ -361,6 +361,14 @@ def test_server_reports_bad_sound_per_expression(http_server):
     assert result["errors"][0]["index"] == 1
 
 
+@pytest.mark.parametrize("expressions", [-1, 2.5, "sin(x)", {"src": "x"}])
+def test_render_project_rejects_non_list_expressions(expressions):
+    from mathmusic.server import render_project
+
+    with pytest.raises(ValueError, match="must be a list"):
+        render_project({"expressions": expressions})
+
+
 def test_instrument_catalogue_endpoint(http_server):
     base, _ = http_server
     status, body = _request(f"{base}/api/instruments")
