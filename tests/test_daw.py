@@ -1209,3 +1209,30 @@ def test_sketch_output_must_be_mp3_or_wav(tmp_path, capsys):
     assert main(["sin(x)", "-o", str(tmp_path / "out.txt")]) == 2
     assert "must end in .mp3 or .wav" in capsys.readouterr().err
     assert not (tmp_path / "out.txt").exists()
+
+
+def test_render_fails_clearly_for_a_project_with_no_clips(tmp_path, capsys):
+    from mathmusic.cli import main
+
+    src = tmp_path / "empty.json"
+    src.write_text(json.dumps({"tracks": [{"id": "t1", "sound": "sine", "clips": []}]}))
+    assert main(["render", str(src), "-o", str(tmp_path / "x.wav")]) == 2
+    assert "no clips to render" in capsys.readouterr().err
+
+
+def test_render_writes_midi_for_a_mid_output(tmp_path):
+    from mathmusic.cli import main
+
+    src = tmp_path / "song.json"
+    src.write_text(json.dumps(small_project()))
+    out = tmp_path / "song.mid"
+    assert main(["render", str(src), "-o", str(out)]) == 0
+    assert out.read_bytes()[:4] == b"MThd"
+
+
+def test_sketch_reports_a_bad_expression_without_writing_a_file(tmp_path, capsys):
+    from mathmusic.cli import main
+
+    assert main(["__import__('os')", "-o", str(tmp_path / "x.wav")]) == 2
+    assert "error:" in capsys.readouterr().err
+    assert not (tmp_path / "x.wav").exists()
