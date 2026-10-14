@@ -72,6 +72,8 @@ def _read_wav(data: bytes) -> np.ndarray:
         audio = np.repeat(audio, 2, axis=1)
     elif channels > 2:
         audio = audio[:, :2]
+    if rate <= 0:
+        raise AssetError("the WAV file has no sample rate")
     if rate != SAMPLE_RATE:
         audio = resample_poly(audio, SAMPLE_RATE, rate, axis=0).astype(np.float32)
     return audio
