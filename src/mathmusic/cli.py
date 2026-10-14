@@ -100,6 +100,7 @@ def render_main(argv: list[str]) -> int:
         stems = engine.render_stems(project)
         args.stems.mkdir(parents=True, exist_ok=True)
         written = 0
+        used: set[str] = set()
         for track in project.tracks:
             if track.bus or track.id not in stems:
                 continue
@@ -107,6 +108,9 @@ def render_main(argv: list[str]) -> int:
             if not audio.size or not np.abs(audio).any():
                 continue
             safe = re.sub(r"[^A-Za-z0-9_-]+", "-", track.name).strip("-") or track.id
+            if safe in used:  # "Bass" and "Bass!" both sanitise to "Bass"; keep both files
+                safe = f"{safe}-{track.id}"
+            used.add(safe)
             path = args.stems / f"{safe}.wav"
             write_wav(path, audio, SAMPLE_RATE)
             written += 1

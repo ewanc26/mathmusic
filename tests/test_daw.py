@@ -461,6 +461,21 @@ def test_midi_export_matches_the_audio_notes():
     assert len(offs) == len(notes_on)
 
 
+def test_stems_with_colliding_names_are_all_kept(tmp_path):
+    from mathmusic.cli import main
+
+    data = small_project()
+    data["tracks"] = [
+        {"id": "t1", "name": "Bass", "sound": "sine", "clips": [{"id": "c1", "start": 0, "length": 4, "notes": 4, "expression": "x"}]},
+        {"id": "t2", "name": "Bass!", "sound": "sine", "clips": [{"id": "c2", "start": 0, "length": 4, "notes": 4, "expression": "sin(x)"}]},
+    ]
+    src = tmp_path / "song.json"
+    src.write_text(json.dumps(data))
+    out = tmp_path / "stems"
+    assert main(["render", str(src), "--stems", str(out)]) == 0
+    assert sorted(p.name for p in out.glob("*.wav")) == ["Bass-t2.wav", "Bass.wav"]
+
+
 def test_midi_names_are_valid_utf8_when_truncated():
     from mathmusic.midi import project_to_midi
 
