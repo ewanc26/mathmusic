@@ -22,13 +22,14 @@ from urllib.parse import urlparse
 
 import numpy as np
 
-from mathmusic.composer import Options, build_voices
+from mathmusic.composer import PITCH_MODES, Options, build_voices
 from mathmusic.expr import Expression, ExpressionError
 from mathmusic.scales import SCALES, parse_note
 from mathmusic.synth import SAMPLE_RATE, encode_mp3, mix, write_wav
 
 WEB_DIR = Path(__file__).parent / "web"
 MAX_SAMPLES = 2000
+MAX_VOICES = 8
 MAX_BODY = 1_000_000
 MAX_RENDERS = 16
 ALLOWED_RHYTHMS = ("uniform", "slope")
@@ -85,6 +86,9 @@ def parse_options(raw: dict) -> Options:
     rhythm = str(raw.get("rhythm", "uniform"))
     if rhythm not in ALLOWED_RHYTHMS:
         raise ValueError(f"unknown rhythm {rhythm!r}")
+    pitch_mode = str(raw.get("pitch_mode", "shared"))
+    if pitch_mode not in PITCH_MODES:
+        raise ValueError(f"unknown pitch mode {pitch_mode!r}")
     start = float(raw.get("start", 0.0))
     end = float(raw.get("end", 4 * pi))
     if end <= start:
@@ -100,6 +104,7 @@ def parse_options(raw: dict) -> Options:
         bpm=number("bpm", 120, 30, 300),
         step_beats=number("step", 0.5, 0.05, 4),
         rhythm=rhythm,
+        pitch_mode=pitch_mode,
     )
 
 
@@ -108,7 +113,7 @@ def render_project(payload: dict) -> dict:
     expressions = payload.get("expressions") or []
 
     errors: list[dict] = []
-    active: list[tuple[int, str, str | None]] = []
+    active: list[tuple[int, str, str | None, bool]] = []
     for index, item in enumerate(expressions):
         source = str(item.get("src", "")).strip()
         if not source or not item.get("enabled", True):
@@ -118,23 +123,28 @@ def render_project(payload: dict) -> dict:
         except ExpressionError as exc:
             errors.append({"index": index, "error": str(exc)})
             continue
-        active.append((index, source, item.get("waveform")))
+        active.append((index, source, item.get("waveform"), bool(item.get("invert", False))))
 
     response: dict = {"errors": errors, "voices": [], "audio": None, "duration": 0.0}
     if not active:
         return response
 
+    if len(active) > MAX_VOICES:
+        raise ValueError(f"at most {MAX_VOICES} expressions can be rendered at once")
+
     voices = build_voices(
-        [src for _, src, _ in active],
+        [src for _, src, _, _ in active],
         opts,
-        waveforms=[wave for _, _, wave in active],
+        waveforms=[wave for _, _, wave, _ in active],
+        inverts=[invert for _, _, _, invert in active],
     )
-    for (index, _, _), voice in zip(active, voices):
+    for (index, _, _, _), voice in zip(active, voices):
         response["voices"].append(
             {
                 "index": index,
                 "expression": voice.expression.source,
                 "waveform": voice.waveform,
+                "inverted": voice.inverted,
                 "pan": voice.pan,
                 "samples": [
                     {
@@ -205,7 +215,25 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):  # keep the terminal quiet
         pass
 
+    def _request_allowed(self) -> bool:
+        """Reject DNS-rebinding and cross-site requests.
+
+        Only the loopback host names for this port are accepted. A browser
+        request from another site carries that site's Origin, so it is refused.
+        """
+        host = self.headers.get("Host", "")
+        if host not in self.server.allowed_hosts:
+            self._json(403, {"error": "unexpected Host header"})
+            return False
+        origin = self.headers.get("Origin")
+        if origin is not None and origin != f"http://{host}":
+            self._json(403, {"error": "cross-origin requests are not allowed"})
+            return False
+        return True
+
     def do_GET(self) -> None:
+        if not self._request_allowed():
+            return
         path = urlparse(self.path).path
         if path in ("/", "/index.html"):
             return self._file(WEB_DIR / "index.html")
@@ -218,7 +246,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self) -> None:
+        if not self._request_allowed():
+            return
         path = urlparse(self.path).path
+        # Requiring JSON forces a CORS preflight for any cross-site POST.
+        if not self.headers.get("Content-Type", "").startswith("application/json"):
+            return self._json(415, {"error": "requests must be application/json"})
         try:
             length = int(self.headers.get("Content-Length", 0))
             if length > MAX_BODY:
@@ -269,9 +302,16 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-def serve(port: int = 8765, open_browser: bool = True) -> None:
+def make_server(port: int) -> ThreadingHTTPServer:
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.daemon_threads = True
+    bound = server.server_address[1]  # differs from `port` when port is 0
+    server.allowed_hosts = {f"127.0.0.1:{bound}", f"localhost:{bound}"}
+    return server
+
+
+def serve(port: int = 8765, open_browser: bool = True) -> None:
+    server = make_server(port)
     url = f"http://127.0.0.1:{port}/"
     print(f"mathmusic running at {url}  (ctrl-c to stop)")
     if open_browser:

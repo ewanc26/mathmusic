@@ -1,7 +1,9 @@
+import json
+
 import numpy as np
 import pytest
 
-from mathmusic.composer import Options, build_voices, curve_to_notes
+from mathmusic.composer import Options, build_voices, curve_to_notes, curve_to_steps
 from mathmusic.expr import Expression, ExpressionError
 from mathmusic.scales import pitch_table
 from mathmusic.synth import SAMPLE_RATE, mix, write_wav
@@ -140,3 +142,154 @@ def test_render_project_rejects_bad_options():
         render_project({"expressions": [{"src": "x"}], "options": {"start": 3, "end": 1}})
     with pytest.raises(ValueError):
         render_project({"expressions": [{"src": "x"}], "options": {"scale": "nope"}})
+
+
+def test_slope_rhythm_survives_undefined_samples():
+    opts = Options(rhythm="slope", step_beats=1.0, octaves=1)
+    steps = curve_to_steps(np.array([0.0, 1.0, 2.0, np.nan, 4.0, 4.0, 4.0, 4.0]), opts)
+    durations = [s.duration for s in steps]
+    # the flat tail keeps full-length notes, so the rhythm is not uniform
+    assert durations[-1] == pytest.approx(1.0)
+    assert min(durations) < max(durations)
+
+
+def test_slope_rhythm_on_straight_line_is_steady_not_all_shortest():
+    opts = Options(rhythm="slope", step_beats=1.0, octaves=1)
+    steps = curve_to_steps(np.linspace(0, 10, 11), opts)
+    durations = {round(s.duration, 6) for s in steps}
+    assert len(durations) == 1
+    assert 0.25 < durations.pop() < 1.0
+
+
+@pytest.fixture
+def http_server():
+    import threading
+
+    from mathmusic.server import make_server
+
+    server = make_server(0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    yield f"http://127.0.0.1:{port}", server.allowed_hosts
+    server.shutdown()
+    server.server_close()
+
+
+def _request(url, *, method="GET", headers=None, body=None):
+    import json as _json
+    import urllib.error
+    import urllib.request
+
+    data = None if body is None else _json.dumps(body).encode()
+    req = urllib.request.Request(url, method=method, data=data, headers=headers or {})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as res:
+            return res.status, res.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
+
+
+def test_api_status_is_served_to_loopback(http_server):
+    base, _ = http_server
+    status, body = _request(f"{base}/api/status")
+    assert status == 200
+    assert "ffmpeg" in json.loads(body)
+
+
+def test_rejects_foreign_host_header(http_server):
+    base, _ = http_server
+    status, _ = _request(f"{base}/api/status", headers={"Host": "evil.example"})
+    assert status == 403
+
+
+def test_rejects_cross_origin_post(http_server):
+    base, _ = http_server
+    status, _ = _request(
+        f"{base}/api/render",
+        method="POST",
+        headers={"Content-Type": "application/json", "Origin": "https://evil.example"},
+        body={"expressions": [{"src": "x"}]},
+    )
+    assert status == 403
+
+
+def test_rejects_non_json_post(http_server):
+    base, _ = http_server
+    status, _ = _request(
+        f"{base}/api/render",
+        method="POST",
+        headers={"Content-Type": "text/plain"},
+        body={"expressions": [{"src": "x"}]},
+    )
+    assert status == 415
+
+
+def test_same_origin_json_render_succeeds(http_server):
+    base, _ = http_server
+    host = base.removeprefix("http://")
+    status, body = _request(
+        f"{base}/api/render",
+        method="POST",
+        headers={"Content-Type": "application/json", "Origin": f"http://{host}"},
+        body={"expressions": [{"src": "sin(x)"}], "options": {"samples": 8}},
+    )
+    assert status == 200
+    assert json.loads(body)["voices"][0]["expression"] == "sin(x)"
+
+
+def test_voice_limit_is_enforced():
+    from mathmusic.server import MAX_VOICES, render_project
+
+    payload = {"expressions": [{"src": "x"} for _ in range(MAX_VOICES + 1)], "options": {"samples": 4}}
+    with pytest.raises(ValueError):
+        render_project(payload)
+
+
+def test_shared_pitch_range_keeps_relative_amplitude():
+    opts = Options(samples=64, scale="chromatic", octaves=3, pitch_mode="shared")
+    small, large = build_voices(["sin(x)", "10*sin(x)"], opts)
+    small_pitches = [s.pitch for s in small.notes]
+    large_pitches = [s.pitch for s in large.notes]
+    assert max(large_pitches) - min(large_pitches) > 2 * (max(small_pitches) - min(small_pitches))
+
+
+def test_per_voice_pitch_range_stretches_each_curve():
+    opts = Options(samples=64, scale="chromatic", octaves=3, pitch_mode="per-voice")
+    small, large = build_voices(["sin(x)", "10*sin(x)"], opts)
+    small_span = max(s.pitch for s in small.notes) - min(s.pitch for s in small.notes)
+    large_span = max(s.pitch for s in large.notes) - min(s.pitch for s in large.notes)
+    assert small_span == large_span
+
+
+def test_invert_flips_pitch_direction():
+    opts = Options(samples=16, scale="chromatic", octaves=2)
+    normal, flipped = build_voices(["x", "x"], opts, inverts=[False, True])
+    assert normal.notes[0].pitch < normal.notes[-1].pitch
+    assert flipped.notes[0].pitch > flipped.notes[-1].pitch
+    assert flipped.inverted and not normal.inverted
+
+
+def test_invert_list_must_match_sources():
+    with pytest.raises(ValueError):
+        build_voices(["x", "x"], Options(samples=4), inverts=[True])
+
+
+def test_unknown_pitch_mode_is_rejected():
+    with pytest.raises(ValueError):
+        build_voices(["x"], Options(samples=4, pitch_mode="log"))
+
+
+def test_render_project_passes_invert_and_pitch_mode():
+    from mathmusic.server import render_project
+
+    result = render_project(
+        {
+            "expressions": [{"src": "x", "invert": True}, {"src": "x"}],
+            "options": {"samples": 8, "octaves": 1, "scale": "chromatic", "pitch_mode": "per-voice"},
+        }
+    )
+    assert result["voices"][0]["inverted"] is True
+    assert result["voices"][1]["inverted"] is False
+    with pytest.raises(ValueError):
+        render_project({"expressions": [{"src": "x"}], "options": {"pitch_mode": "bogus"}})
