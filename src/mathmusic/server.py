@@ -386,7 +386,9 @@ class Handler(BaseHTTPRequestHandler):
         # application/octet-stream is not a CORS "simple" type, so a cross-site upload needs a preflight
         if not self.headers.get("Content-Type", "").startswith("application/octet-stream"):
             return self._json(415, {"error": "upload the file as application/octet-stream"})
-        length = int(self.headers.get("Content-Length", 0) or 0)
+        length = self._content_length()
+        if length is None:
+            return self._json(400, {"error": "Content-Length must be a non-negative whole number"})
         if length > assets.MAX_UPLOAD:
             return self._json(413, {"error": f"files over {assets.MAX_UPLOAD // (1024 * 1024)} MB are not accepted"})
         filename = unquote(self.headers.get("X-Filename", ""))[:200]
@@ -438,6 +440,18 @@ class Handler(BaseHTTPRequestHandler):
             return storage.save_project(unquote(path.removeprefix("/api/projects/")), payload.get("project"))
         raise FileNotFoundError(path)
 
+    def _content_length(self) -> int | None:
+        """The request body length, or None if the header isn't a non-negative integer.
+
+        A negative length would make rfile.read() wait for the client to close the
+        connection, so it is refused like any other malformed header.
+        """
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return None
+        return length if length >= 0 else None
+
     def _handle_json(self, route, raw: bool = False) -> None:
         """Parse a JSON body and run `route`. With raw=True the route writes its own response."""
         if not self._request_allowed():
@@ -446,7 +460,9 @@ class Handler(BaseHTTPRequestHandler):
         # Requiring JSON forces a CORS preflight for any cross-site request.
         if not self.headers.get("Content-Type", "").startswith("application/json"):
             return self._json(415, {"error": "requests must be application/json"})
-        length = int(self.headers.get("Content-Length", 0) or 0)
+        length = self._content_length()
+        if length is None:
+            return self._json(400, {"error": "Content-Length must be a non-negative whole number"})
         if length > MAX_BODY:
             return self._json(413, {"error": "request too large"})
 

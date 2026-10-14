@@ -361,6 +361,18 @@ def test_server_reports_bad_sound_per_expression(http_server):
     assert result["errors"][0]["index"] == 1
 
 
+@pytest.mark.parametrize("length", ["abc", "-1"])
+def test_malformed_content_length_is_a_400_not_a_crash(http_server, length):
+    base, _ = http_server
+    status, body = _request(
+        f"{base}/api/project/render",
+        method="POST",
+        headers={"Content-Type": "application/json", "Content-Length": length},
+    )
+    assert status == 400
+    assert "Content-Length" in json.loads(body)["error"]
+
+
 def test_instrument_catalogue_endpoint(http_server):
     base, _ = http_server
     status, body = _request(f"{base}/api/instruments")
