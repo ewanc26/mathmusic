@@ -447,6 +447,31 @@ def test_midi_names_are_valid_utf8_when_truncated():
     _, _, tracks = read_midi(project_to_midi(parse_project(data)))
     names = [bytes(e[2]).decode("utf-8") for e in tracks[1] if e[1] == 0xFF and e[2][0] == 0x03]
     assert names and len(names[0].encode("utf-8")) <= 120
+def test_midi_never_stacks_the_same_pitch():
+    from mathmusic.midi import project_to_midi
+
+    data = small_project()
+    data["tracks"] = [
+        {
+            "id": "t1",
+            "sound": "sine",
+            "clips": [
+                {"id": "c1", "start": 0, "length": 4, "notes": 1, "expression": "x", "gate": 1},
+                {"id": "c2", "start": 0.5, "length": 1, "notes": 1, "expression": "x", "gate": 1},
+                {"id": "c3", "start": 0.5, "length": 1, "notes": 1, "expression": "x", "gate": 0.5},
+            ],
+        }
+    ]
+    _, _, tracks = read_midi(project_to_midi(parse_project(data)))
+    per_pitch: dict[int, list[int]] = {}
+    for tick, status, body in tracks[1]:
+        if status & 0xF0 in (0x80, 0x90):
+            kind = 1 if status & 0xF0 == 0x90 and body[1] else 0
+            per_pitch.setdefault(body[0], []).append(kind)
+    for pitch, kinds in per_pitch.items():
+        # every note-on is followed by its note-off before the next note-on
+        assert kinds == [1, 0] * (len(kinds) // 2), (pitch, kinds)
+        assert kinds.count(1) >= 1
 
 
 def test_midi_skips_drum_channel_and_uses_gm_program():
