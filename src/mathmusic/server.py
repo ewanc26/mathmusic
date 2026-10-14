@@ -327,7 +327,7 @@ def plot_formula(payload: dict) -> dict:
         start = float(payload.get("start", 0.0))
         end = float(payload.get("end", 1.0))
         points = int(payload.get("points", 200))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: points=Infinity
         raise ValueError("start, end and points must be numbers") from None
     if not (np.isfinite(start) and np.isfinite(end)) or end <= start:
         raise ValueError("end must be greater than start")

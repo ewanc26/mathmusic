@@ -361,6 +361,13 @@ def test_server_reports_bad_sound_per_expression(http_server):
     assert result["errors"][0]["index"] == 1
 
 
+def test_plot_rejects_infinite_point_count():
+    from mathmusic.server import plot_formula
+
+    with pytest.raises(ValueError, match="must be numbers"):
+        plot_formula({"formula": "x", "points": float("inf")})
+
+
 def test_instrument_catalogue_endpoint(http_server):
     base, _ = http_server
     status, body = _request(f"{base}/api/instruments")
