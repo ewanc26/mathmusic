@@ -37,9 +37,9 @@ const graphCanvas = $("#graph");
 const rollCanvas = $("#roll");
 
 let nextId = 1;
-const newExpr = (src = "", waveform = null) => ({ id: nextId++, src, waveform, enabled: true });
+const newExpr = (src = "", waveform = null) => ({ id: nextId++, src, waveform, enabled: true, invert: false });
 
-let state = loadState() ?? { exprs: PRESETS[0].exprs.map((s) => newExpr(s)), opts: { ...PRESETS[0].opts } };
+let state = loadState() ?? { exprs: PRESETS[0].exprs.map((s) => newExpr(s)), opts: { pitch_mode: "shared", ...PRESETS[0].opts } };
 let render = null; // last successful render from the server
 let serverStatus = { ffmpeg: false, plyrfm: false, plyr_token: false };
 let renderSeq = 0;
@@ -58,8 +58,8 @@ function loadState() {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (!saved || !Array.isArray(saved.exprs) || !saved.opts) return null;
     return {
-      exprs: saved.exprs.map((e) => ({ ...newExpr(String(e.src ?? ""), e.waveform ?? null), enabled: e.enabled !== false })),
-      opts: saved.opts,
+      exprs: saved.exprs.map((e) => ({ ...newExpr(String(e.src ?? ""), e.waveform ?? null), enabled: e.enabled !== false, invert: e.invert === true })),
+      opts: { pitch_mode: "shared", ...saved.opts },
     };
   } catch {
     return null;
@@ -91,7 +91,7 @@ function renderPresets() {
 
 function applyPreset(preset) {
   state.exprs = preset.exprs.map((s) => newExpr(s));
-  state.opts = { ...preset.opts };
+  state.opts = { pitch_mode: "shared", ...preset.opts };
   autoFit = true;
   syncOptionInputs();
   renderExprs();
@@ -160,6 +160,17 @@ function exprRow(expr, index) {
   });
   enabled.append(check, " on");
 
+  const invertLabel = document.createElement("label");
+  invertLabel.title = "Flip the direction: high values sound low";
+  const invertCheck = document.createElement("input");
+  invertCheck.type = "checkbox";
+  invertCheck.checked = expr.invert;
+  invertCheck.addEventListener("change", () => {
+    expr.invert = invertCheck.checked;
+    scheduleRender(0);
+  });
+  invertLabel.append(invertCheck, " invert");
+
   const wave = document.createElement("select");
   wave.setAttribute("aria-label", `Waveform for expression ${index + 1}`);
   for (const name of ["auto", ...WAVES]) {
@@ -176,7 +187,7 @@ function exprRow(expr, index) {
 
   const spacer = document.createElement("span");
   spacer.className = "spacer";
-  meta.append(enabled, spacer, wave);
+  meta.append(enabled, invertLabel, spacer, wave);
 
   const error = document.createElement("div");
   error.className = "expr-error";
@@ -239,7 +250,7 @@ function scheduleRender(delay = 350) {
 async function renderNow() {
   const mine = ++renderSeq;
   const body = {
-    expressions: state.exprs.map((e) => ({ src: e.src, waveform: e.waveform, enabled: e.enabled })),
+    expressions: state.exprs.map((e) => ({ src: e.src, waveform: e.waveform, enabled: e.enabled, invert: e.invert })),
     options: state.opts,
   };
   let data;

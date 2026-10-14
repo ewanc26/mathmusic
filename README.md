@@ -15,7 +15,7 @@ mathmusic serve            # opens http://127.0.0.1:8765 in your browser
 - **Presets:** Three curves, Damped, Gaussian, Beating.
 - **Publish:** uploads the current render to plyr.fm. See below.
 
-The browser sends your expressions to a local server, which uses the same engine as the CLI. What you see is what plays and what gets published. The server only listens on 127.0.0.1.
+The browser sends your expressions to a local server, which uses the same engine as the CLI. What you see is what plays and what gets published. The server only listens on 127.0.0.1, and it refuses requests whose Host or Origin is not the local address, so other websites cannot use it to render or publish.
 
 ## Command line
 
@@ -34,7 +34,8 @@ uv venv .venv && uv pip install --python .venv/bin/python -e ".[plot,publish]"
 ## How curves become notes
 
 - **x** runs from `--start` to `--end` in `--samples` steps. Each step is one note.
-- **y** is normalised to the curve's own min/max, then quantised onto `--scale` across `--octaves`.
+- **y** is quantised onto `--scale` across `--octaves`. By default (`--pitch-range shared`) all voices share one range, so a curve with bigger values sounds higher and the relative amplitudes survive. `--pitch-range per-voice` stretches each curve to fill the range, which shows its shape but hides amplitude.
+- In the UI, **invert** flips a voice's direction, so high values sound low.
 - `--rhythm uniform` gives every note `--step` beats. `--rhythm slope` gives steep parts shorter notes.
 - Undefined points (`log(-1)`, division by zero) become rests.
 - Voices get different waveforms and are panned across the stereo field.

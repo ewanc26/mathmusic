@@ -31,6 +31,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--scale", choices=sorted(SCALES), default="pentatonic")
     parser.add_argument("--root", type=int, default=60, help="root as a MIDI note (60 = C4)")
     parser.add_argument("--octaves", type=int, default=2, help="pitch range in octaves (default 2)")
+    parser.add_argument(
+        "--pitch-range",
+        choices=["shared", "per-voice"],
+        default="shared",
+        help="shared: all voices use one pitch range (keeps relative height); per-voice: each curve fills the range",
+    )
     parser.add_argument("--bpm", type=float, default=120.0)
     parser.add_argument("--step", type=float, default=0.5, help="beats per sample (default 0.5)")
     parser.add_argument(
@@ -76,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
         bpm=args.bpm,
         step_beats=args.step,
         rhythm=args.rhythm,
+        pitch_mode=args.pitch_range,
     )
 
     try:
