@@ -49,6 +49,11 @@ def _chunk(kind: bytes, body: bytes) -> bytes:
     return kind + struct.pack(">I", len(body)) + body
 
 
+def _text(value: str, limit: int = 120) -> bytes:
+    """UTF-8 text cut to at most `limit` bytes without splitting a character."""
+    return value.encode("utf-8")[:limit].decode("utf-8", "ignore").encode("utf-8")
+
+
 def _meta(kind: int, data: bytes) -> bytes:
     return bytes([0xFF, kind]) + _vlq(len(data)) + data
 
@@ -66,7 +71,7 @@ def _encode(events: list[tuple[int, int, bytes]]) -> bytes:
 def project_to_midi(project: Project) -> bytes:
     tempo = int(round(60_000_000 / project.bpm))
     conductor = [
-        (0, 0, _meta(0x03, project.name.encode("utf-8")[:120])),
+        (0, 0, _meta(0x03, _text(project.name))),
         (0, 0, _meta(0x51, tempo.to_bytes(3, "big"))),
         (0, 0, _meta(0x58, bytes([project.beats_per_bar, 2, 24, 8]))),  # n/4
     ]
@@ -80,7 +85,7 @@ def project_to_midi(project: Project) -> bytes:
             name = ""
         program = GM_PROGRAMS.get(name, 0)
         events = [
-            (0, 0, _meta(0x03, track.name.encode("utf-8")[:120])),
+            (0, 0, _meta(0x03, _text(track.name))),
             (0, 0, bytes([0xC0 | channel, program])),
         ]
         for clip in track.clips:

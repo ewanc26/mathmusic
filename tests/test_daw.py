@@ -439,6 +439,16 @@ def test_midi_export_matches_the_audio_notes():
     assert len(offs) == len(notes_on)
 
 
+def test_midi_names_are_valid_utf8_when_truncated():
+    from mathmusic.midi import project_to_midi
+
+    data = small_project(name="Song")
+    data["tracks"] = [{"id": "t1", "name": "a" + "é" * 60, "sound": "sine", "clips": []}]  # 121 bytes
+    _, _, tracks = read_midi(project_to_midi(parse_project(data)))
+    names = [bytes(e[2]).decode("utf-8") for e in tracks[1] if e[1] == 0xFF and e[2][0] == 0x03]
+    assert names and len(names[0].encode("utf-8")) <= 120
+
+
 def test_midi_skips_drum_channel_and_uses_gm_program():
     from mathmusic.midi import project_to_midi
 
