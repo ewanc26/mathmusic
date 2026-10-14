@@ -22,7 +22,7 @@ mathmusic = "mathmusic.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-mathmusic = ["web/*"]
+mathmusic = ["web/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

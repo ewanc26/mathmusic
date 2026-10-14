@@ -55,7 +55,21 @@ EFFECT_SPECS: dict[str, dict[str, tuple]] = {
     },
 }
 
+# Number params that may instead be a formula of the beat (x = song position in beats)
+AUTOMATABLE = {
+    ("shaper", "mix"),
+    ("lowpass", "cutoff"),
+    ("lowpass", "q"),
+    ("highpass", "cutoff"),
+    ("highpass", "q"),
+    ("delay", "feedback"),
+    ("delay", "mix"),
+    ("reverb", "mix"),
+}
+
+CLIP_KINDS = ("curve", "audio")
 _ID = re.compile(r"[A-Za-z0-9_-]{1,32}")
+_ASSET = re.compile(r"[0-9a-f]{64}")  # sha256 of the imported audio
 
 
 class ProjectError(ValueError):
@@ -87,6 +101,9 @@ class Clip:
     gate: float = 0.9  # fraction of each step that sounds
     gain: float = 1.0
     name: str = ""
+    kind: str = "curve"  # "curve" plays y = f(x); "audio" plays an imported sample
+    asset: str | None = None  # audio clips: id of the imported sample
+    offset: float = 0.0  # audio clips: beats skipped at the start of the sample
 
     @property
     def end(self) -> float:
@@ -120,6 +137,7 @@ class Master:
 class Project:
     name: str = "Untitled"
     bpm: float = 110.0
+    beats_per_bar: int = 4  # time signature numerator; a beat is a quarter note
     root: str = "C4"
     scale: str = "pentatonic"
     tracks: list[Track] = field(default_factory=list)
@@ -221,6 +239,9 @@ def parse_effect(raw: dict, where: str) -> Effect:
     for name, spec in EFFECT_SPECS[kind].items():
         if spec[0] == "formula":
             params[name] = _formula(given, name, f"{where}.params") or spec[1]
+        elif (kind, name) in AUTOMATABLE and isinstance(given.get(name), str):
+            # a formula of the beat; the engine evaluates and clamps it to the param's range
+            params[name] = _formula(given, name, f"{where}.params") or spec[1]
         else:
             params[name] = _number(given, name, spec[1], spec[2], spec[3], f"{where}.params")
     return Effect(type=kind, params=params, bypass=_flag(raw, "bypass", False))
@@ -244,7 +265,16 @@ def parse_clip(raw: dict, where: str) -> Clip:
         y_max=_optional_number(raw, "y_max", where),
         gate=_number(raw, "gate", 0.9, 0.05, 1.0, where),
         gain=_number(raw, "gain", 1.0, 0.0, 2.0, where),
+        kind=_text(raw, "kind", "curve", 8, where),
+        offset=_number(raw, "offset", 0.0, 0.0, LIMITS["length_beats"], where),
     )
+    if clip.kind not in CLIP_KINDS:
+        raise ProjectError(f"{where}.kind must be one of {', '.join(CLIP_KINDS)}")
+    if clip.kind == "audio":
+        asset = raw.get("asset")
+        if not isinstance(asset, str) or not _ASSET.fullmatch(asset):
+            raise ProjectError(f"{where}.asset must be the id of an imported sample")
+        clip.asset = asset
     if clip.rhythm not in RHYTHMS:
         raise ProjectError(f"{where}.rhythm must be one of {', '.join(RHYTHMS)}")
     if clip.x_end <= clip.x_start:
@@ -296,6 +326,7 @@ def parse_project(raw: dict) -> Project:
     project = Project(
         name=_text(raw, "name", "Untitled", 80, "project") or "Untitled",
         bpm=_number(raw, "bpm", 110.0, 20.0, 300.0, "project"),
+        beats_per_bar=_integer(raw, "beats_per_bar", 4, 1, 16, "project"),
         root=_text(raw, "root", "C4", 4, "project"),
         scale=_text(raw, "scale", "pentatonic", 32, "project"),
         loop_enabled=_flag(raw, "loop_enabled", False),
@@ -325,7 +356,7 @@ def parse_project(raw: dict) -> Project:
     ids = [t.id for t in project.tracks] + [c.id for t in project.tracks for c in t.clips]
     if len(ids) != len(set(ids)):
         raise ProjectError("track and clip ids must be unique")
-    total_notes = sum(c.notes for t in project.tracks for c in t.clips)
+    total_notes = sum(c.notes for t in project.tracks for c in t.clips if c.kind == "curve")
     if total_notes > LIMITS["total_notes"]:
         raise ProjectError(f"the project has {total_notes} notes; the limit is {LIMITS['total_notes']}")
     if project.length_beats * 60.0 / project.bpm > LIMITS["seconds"]:
@@ -359,6 +390,9 @@ def clip_to_dict(clip: Clip) -> dict:
         "y_max": clip.y_max,
         "gate": clip.gate,
         "gain": clip.gain,
+        "kind": clip.kind,
+        "asset": clip.asset,
+        "offset": clip.offset,
     }
 
 
@@ -383,6 +417,7 @@ def project_to_dict(project: Project) -> dict:
         "version": project.version,
         "name": project.name,
         "bpm": project.bpm,
+        "beats_per_bar": project.beats_per_bar,
         "root": project.root,
         "scale": project.scale,
         "loop_enabled": project.loop_enabled,

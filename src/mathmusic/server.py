@@ -22,10 +22,18 @@ from urllib.parse import unquote, urlparse
 
 import numpy as np
 
-from mathmusic import engine, storage
+from mathmusic import assets, engine, storage
 from mathmusic.composer import PITCH_MODES, Options, build_voices
 from mathmusic.expr import Expression, ExpressionError
-from mathmusic.project import EFFECT_SPECS, LIMITS, MAX_FORMULA, default_project, parse_project, project_to_dict
+from mathmusic.project import (
+    AUTOMATABLE,
+    EFFECT_SPECS,
+    LIMITS,
+    MAX_FORMULA,
+    default_project,
+    parse_project,
+    project_to_dict,
+)
 from mathmusic.scales import SCALES, parse_note
 from mathmusic.synth import SAMPLE_RATE, encode_mp3, mix, write_wav
 from mathmusic.waves import describe_all, resolve
@@ -246,7 +254,13 @@ def catalogue() -> dict:
                 name: (
                     {"kind": "formula", "default": spec[1]}
                     if spec[0] == "formula"
-                    else {"kind": "number", "default": spec[1], "min": spec[2], "max": spec[3]}
+                    else {
+                        "kind": "number",
+                        "default": spec[1],
+                        "min": spec[2],
+                        "max": spec[3],
+                        "automatable": (kind, name) in AUTOMATABLE,
+                    }
                 )
                 for name, spec in params.items()
             }
@@ -322,18 +336,33 @@ class Handler(BaseHTTPRequestHandler):
         if not self._request_allowed():
             return
         path = urlparse(self.path).path
-        if path in ("/", "/index.html"):
-            return self._file(WEB_DIR / "index.html")
-        if path.startswith("/static/"):
-            return self._static(path.removeprefix("/static/"))
+        if path.startswith("/api/"):
+            return self._handle(lambda: self._get_api(path))
         if path.startswith("/audio/"):
             return self._audio(path.removeprefix("/audio/"))
-        self._handle(lambda: self._get_api(path))
+        # the built UI (frontend/, SvelteKit): index.html plus its files under /_app/
+        return self._static("index.html" if path in ("/", "") else path.lstrip("/"))
 
     def do_POST(self) -> None:
-        if urlparse(self.path).path == "/api/project/midi":
+        path = urlparse(self.path).path
+        if path == "/api/assets":
+            return self._upload()
+        if path == "/api/project/midi":
             return self._handle_json(self._midi, raw=True)
         self._handle_json(self._post_api)
+
+    def _upload(self) -> None:
+        """Import an audio file sent as the raw request body."""
+        if not self._request_allowed():
+            return
+        # application/octet-stream is not a CORS "simple" type, so a cross-site upload needs a preflight
+        if not self.headers.get("Content-Type", "").startswith("application/octet-stream"):
+            return self._json(415, {"error": "upload the file as application/octet-stream"})
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        if length > assets.MAX_UPLOAD:
+            return self._json(413, {"error": f"files over {assets.MAX_UPLOAD // (1024 * 1024)} MB are not accepted"})
+        filename = unquote(self.headers.get("X-Filename", ""))[:200]
+        self._handle(lambda: assets.import_audio(self.rfile.read(length), filename))
 
     def _midi(self, path: str, payload: dict) -> None:
         from mathmusic.midi import project_to_midi
@@ -423,6 +452,8 @@ class Handler(BaseHTTPRequestHandler):
         root = WEB_DIR.resolve()
         target = (root / unquote(relative)).resolve()
         if not target.is_relative_to(root) or not target.is_file():
+            if relative == "index.html":
+                return self._json(503, {"error": "the UI is not built; run `pnpm build` in frontend/"})
             return self.send_error(404)
         self._file(target)
 

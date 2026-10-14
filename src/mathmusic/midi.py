@@ -68,7 +68,7 @@ def project_to_midi(project: Project) -> bytes:
     conductor = [
         (0, 0, _meta(0x03, project.name.encode("utf-8")[:120])),
         (0, 0, _meta(0x51, tempo.to_bytes(3, "big"))),
-        (0, 0, _meta(0x58, bytes([4, 2, 24, 8]))),  # 4/4
+        (0, 0, _meta(0x58, bytes([project.beats_per_bar, 2, 24, 8]))),  # n/4
     ]
     chunks = [_chunk(b"MTrk", _encode(conductor))]
 
@@ -84,6 +84,8 @@ def project_to_midi(project: Project) -> bytes:
             (0, 0, bytes([0xC0 | channel, program])),
         ]
         for clip in track.clips:
+            if clip.kind != "curve":
+                continue  # audio clips have no notes
             try:
                 result = render_clip(clip, project)
             except ValueError:

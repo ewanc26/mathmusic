@@ -1,122 +1,38 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>mathmusic</title>
-  <link rel="stylesheet" href="/static/app.css">
-</head>
-<body>
-  <header class="topbar">
-    <div class="brand">mathmusic</div>
-    <div class="project">
-      <input id="project-name" class="project-name" type="text" maxlength="64" spellcheck="false" aria-label="Project name">
-      <span id="dirty" class="dirty" title="Unsaved changes" hidden>●</span>
-    </div>
-    <div class="group">
-      <button id="new" class="ghost" type="button">New</button>
-      <button id="open" class="ghost" type="button">Open</button>
-      <button id="save" class="ghost" type="button" title="Save (⌘S)">Save</button>
-    </div>
-    <div class="group">
-      <button id="undo" class="icon-btn" type="button" title="Undo (⌘Z)" aria-label="Undo">↶</button>
-      <button id="redo" class="icon-btn" type="button" title="Redo (⇧⌘Z)" aria-label="Redo">↷</button>
-    </div>
-    <div class="transport">
-      <button id="to-start" class="icon-btn" type="button" title="Back to start (Home)" aria-label="Back to start">⏮</button>
-      <button id="play" class="play" type="button" aria-label="Play" title="Play / pause (Space)">▶</button>
-      <button id="loop" class="icon-btn toggle" type="button" title="Loop (L). Drag on the ruler to set the region." aria-label="Loop">⟲</button>
-      <div class="readouts">
-        <span id="position" class="readout big" title="Bar.beat.hundredths">1.1.00</span>
-        <span id="clock" class="readout">0:00.0</span>
-      </div>
-    </div>
-    <div class="group fields">
-      <label class="inline">BPM <input id="bpm" type="number" min="20" max="300" step="1"></label>
-      <label class="inline">Root <input id="root" type="text" maxlength="4" size="3" spellcheck="false"></label>
-      <label class="inline">Scale <select id="scale"></select></label>
-    </div>
-    <div class="group">
-      <a id="export-wav" class="ghost" hidden>WAV</a>
-      <a id="export-mp3" class="ghost" hidden>MP3</a>
-      <button id="export-midi" class="ghost" type="button" title="Export the notes as a MIDI file for other DAWs">MIDI</button>
-      <button id="help" class="icon-btn" type="button" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
-    </div>
-    <div class="status" id="status"></div>
-  </header>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <title>mathmusic</title>
+    <link href="./_app/immutable/entry/start.HzGZzH6Z.js" rel="modulepreload">
+		<link href="./_app/immutable/chunks/CnvZD5VZ.js" rel="modulepreload">
+		<link href="./_app/immutable/chunks/DH3Onmi8.js" rel="modulepreload">
+		<link href="./_app/immutable/entry/app.B3xXOIYr.js" rel="modulepreload">
+		<link href="./_app/immutable/chunks/xihTtKlq.js" rel="modulepreload">
+		<link href="./_app/immutable/nodes/0.B9lYLc8a.js" rel="modulepreload">
+		<link href="./_app/immutable/nodes/2.CJ6xWE1_.js" rel="modulepreload">
+		
+		<link href="./_app/immutable/assets/0.D5br9xiv.css" rel="stylesheet">
+  </head>
+  <body data-sveltekit-preload-data="hover">
+    <div style="display: contents">
+			<script>
+				{
+					__sveltekit_9y19ga = {
+						base: new URL(".", location).pathname.slice(0, -1)
+					};
 
-  <main class="daw">
-    <section class="arrange" aria-label="Arrangement">
-      <div class="arrange-head">
-        <div class="arrange-tools">
-          <button id="add-track" class="ghost small" type="button" title="Add track (T)">+ Track</button>
-          <label class="inline small">Snap
-            <select id="snap">
-              <option value="0.25">1/16</option>
-              <option value="0.5">1/8</option>
-              <option value="1" selected>beat</option>
-              <option value="4">bar</option>
-            </select>
-          </label>
-          <span class="zoom">
-            <button id="zoom-out" class="icon-btn small" type="button" title="Zoom out (−)" aria-label="Zoom out">−</button>
-            <button id="zoom-fit" class="icon-btn small" type="button" title="Fit (F)" aria-label="Zoom to fit">⤢</button>
-            <button id="zoom-in" class="icon-btn small" type="button" title="Zoom in (+)" aria-label="Zoom in">+</button>
-          </span>
-        </div>
-        <canvas id="ruler" class="ruler" aria-label="Timeline ruler: click to seek, drag to set the loop"></canvas>
-      </div>
-      <div class="arrange-body">
-        <div class="headers-col"><div id="track-headers" class="track-headers"></div></div>
-        <div id="lanes-wrap" class="lanes-wrap">
-          <canvas id="lanes" class="lanes" aria-label="Track lanes: drag clips to move them, drag their right edge to resize, double-click to add a clip"></canvas>
-        </div>
-      </div>
-      <div class="render-bar"><span id="render-state" class="render-state"></span></div>
-    </section>
+					const element = document.currentScript.parentElement;
 
-    <section class="panel" aria-label="Editor">
-      <nav id="tabs" class="tabs" role="tablist"></nav>
-      <div id="tab-bodies" class="tab-bodies"></div>
-    </section>
-  </main>
-
-  <dialog id="open-dialog" class="dialog">
-    <form method="dialog" class="dialog-head">
-      <h2>Open project</h2>
-      <button class="icon-btn" aria-label="Close">×</button>
-    </form>
-    <p class="hint">Saved in <code id="open-folder"></code></p>
-    <ul id="open-list" class="open-list"></ul>
-  </dialog>
-
-  <dialog id="help-dialog" class="dialog">
-    <form method="dialog" class="dialog-head">
-      <h2>Keyboard and mouse</h2>
-      <button class="icon-btn" aria-label="Close">×</button>
-    </form>
-    <dl class="shortcuts">
-      <dt>Space</dt><dd>Play / pause</dd>
-      <dt>Home or Enter</dt><dd>Back to start (or loop start)</dd>
-      <dt>L</dt><dd>Loop on / off. Drag on the ruler to set the loop.</dd>
-      <dt>⌘Z, ⇧⌘Z</dt><dd>Undo, redo</dd>
-      <dt>⌘S</dt><dd>Save</dd>
-      <dt>⌘C, ⌘V, ⌘D</dt><dd>Copy, paste, duplicate the selected clip</dd>
-      <dt>⌘E</dt><dd>Split the selected clip at the playhead</dd>
-      <dt>⌫</dt><dd>Delete the selected clip</dd>
-      <dt>T</dt><dd>Add a track</dd>
-      <dt>M, S</dt><dd>Mute, solo the selected track</dd>
-      <dt>+, −, F</dt><dd>Zoom in, out, fit</dd>
-      <dt>1 – 7</dt><dd>Clip, Track, Effects, Automation, Mixer, Master, Publish</dd>
-      <dt>Double-click lane</dt><dd>New clip (below the last track: new track)</dd>
-      <dt>Drag clip</dt><dd>Move, also to another track. Drag its right edge to resize.</dd>
-      <dt>⌘/Ctrl + scroll</dt><dd>Zoom the timeline. Shift + scroll pans.</dd>
-    </dl>
-    <p class="hint">Every formula uses x. In a clip x runs across the curve; in automation x is the beat; in a waveform x is the phase (one cycle from 0 to 1); in an envelope x runs over the note; in a shaper x is the sample value.</p>
-  </dialog>
-
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
-
-  <script type="module" src="/static/js/main.js"></script>
-</body>
+					Promise.all([
+						import("./_app/immutable/entry/start.HzGZzH6Z.js"),
+						import("./_app/immutable/entry/app.B3xXOIYr.js")
+					]).then(([kit, app]) => {
+						kit.start(app, element);
+					});
+				}
+			</script>
+		</div>
+  </body>
 </html>

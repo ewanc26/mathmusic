@@ -8,13 +8,14 @@ mathmusic serve            # opens the DAW at http://127.0.0.1:8765
 
 ## The DAW
 
-- **Arrangement:** tracks of clips on a beat timeline. Drag clips to move them, including onto another track. Drag a clip's right edge to resize it, and double-click a lane to add one. Each lane shows its clips' curves, the track's rendered waveform, and its automation.
+- **Arrangement:** tracks of clips on a beat timeline in any time signature from 1/4 to 16/4. Drag clips to move them, including onto another track. Drag a clip's right edge to resize it, and double-click a lane to add one. Each lane shows its clips' curves, the track's rendered waveform, and its automation.
+- **Audio clips:** import WAV, MP3, FLAC, OGG, AIFF or M4A with the Audio button, or drop a file onto a lane. Samples are converted to 44.1 kHz stereo and stored once, by content, in `~/.mathmusic/assets`. Audio clips can be moved, trimmed (start offset and length), split and mixed like any other clip.
 - **Clip editor:** the curve plotted against the scale's pitch lattice. Each horizontal line is a note, and each sample snaps to the nearest one. You set the expression, the x range, the number of notes, the start and length in beats, the rhythm, octave, range, gate and gain, invert, and an optional fixed y range.
 - **Tracks:** a sound (waveform, instrument or your own formula), an envelope over each note, volume, pan, mute and solo. The waveform's single cycle and the envelope are both plotted.
 - **Effects:** chains on every track and on the master: a waveshaper with a formula transfer curve, lowpass and highpass biquads, a feedback delay in beats, and a Schroeder reverb. You can bypass and reorder them.
-- **Automation:** gain and pan as formulas of the beat, plotted over the song, with presets for fades, tremolo, swells and auto-pan.
+- **Automation:** gain and pan as formulas of the beat, plotted over the song, with presets for fades, tremolo, swells and auto-pan. Effect parameters can be automated too: press **ƒ** next to a filter cutoff or Q, a delay's feedback or mix, a reverb's mix, or a shaper's mix, and write it as a formula of the beat. For example, `300 + 2500*(0.5 + 0.5*sin(2*pi*x/16))` is a filter sweep.
 - **Mixer:** channel strips with faders, pan, mute and solo, and level meters that follow the playhead.
-- **Transport:** play and pause, loop (drag on the ruler), a bar.beat position, follow-playhead, and zoom.
+- **Transport:** play and pause, loop (drag on the ruler), a bar.beat position, follow-playhead, and zoom. A **metronome** (K) clicks on every beat and accents the first beat of each bar. The click is a decaying sine burst made with Web Audio, and it's never part of the render or the exports.
 - **Editing:** undo and redo for every change, copy, paste, duplicate, split at the playhead, and delete. Keyboard shortcuts are listed under `?`.
 - **Projects:** save and open by name, plus an automatic draft in the browser. Projects are stored as JSON in `~/.mathmusic/projects`, or in `$MATHMUSIC_HOME/projects` if that's set.
 - **Export:** WAV, MP3 and MIDI. The MIDI file uses the same notes you hear, with General MIDI programs chosen to resemble each sound.
@@ -29,6 +30,7 @@ mathmusic serve            # opens the DAW at http://127.0.0.1:8765
 | Envelope | position in the note, 0 to 1 | `exp(-4*x)` |
 | Gain automation | song position in beats; multiplies the volume | `min(1, x/8)` |
 | Pan automation | song position in beats; added to the pan | `sin(2*pi*x/8)` |
+| Effect parameter (ƒ) | song position in beats; clamped to the parameter's range | `400 + 300*sin(2*pi*x/8)` |
 | Shaper effect | the audio sample value | `tanh(3*x)` |
 
 Formulas accept `+ - * / ^ %`, `x`, `pi`, `tau`, `e`, and functions such as `sin cos tan exp log sqrt abs floor sign sinc tanh mod min max clip`. Anything else is rejected before evaluation. A formula that fails is reported on the clip, sound or effect that uses it, and the rest of the project still plays.
@@ -60,12 +62,28 @@ The sketch mode keeps its original options: `--start`, `--end`, `--samples`, `--
 
 ## Setup
 
-Needs Python 3.10+, and ffmpeg for MP3 (`brew install ffmpeg`).
+Needs Python 3.10+, and ffmpeg for MP3 output and for importing formats other than WAV (`brew install ffmpeg`).
 
 ```bash
 uv venv .venv && uv pip install --python .venv/bin/python -e ".[plot,publish,dev]"
 .venv/bin/mathmusic serve
 ```
+
+The built interface ships inside the package (`src/mathmusic/web`), so running mathmusic doesn't need Node.
+
+## Developing the interface
+
+The UI is a SvelteKit app (Svelte 5 runes, TypeScript, Tailwind v4) in `frontend/`, managed with pnpm. It builds to a static single page in `src/mathmusic/web`.
+
+```bash
+cd frontend
+pnpm install
+pnpm dev        # Vite dev server with hot reload; proxies /api and /audio to mathmusic serve on :8765
+pnpm check      # svelte-check (types and accessibility)
+pnpm build      # writes the static app into ../src/mathmusic/web; commit the result
+```
+
+Run `.venv/bin/mathmusic serve --no-browser` alongside `pnpm dev`. Set `MATHMUSIC_API` to point the dev proxy at a different port.
 
 The server listens only on 127.0.0.1. It refuses requests whose Host or Origin isn't the local address, so other websites can't use it to render, save or publish.
 
@@ -76,7 +94,8 @@ The Publish tab, or `--publish` in sketch mode, uploads the mix as an MP3 to [pl
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest
+.venv/bin/python -m pytest          # engine, effects, MIDI, samples and the HTTP API, including checks on the rendered audio
+cd frontend && pnpm check           # the interface's types
 ```
 
 ## Licence

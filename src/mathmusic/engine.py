@@ -18,14 +18,15 @@ import numpy as np
 from mathmusic import dsp
 from mathmusic.composer import NoteEvent, Options, curve_to_steps, value_bounds
 from mathmusic.expr import Expression
-from mathmusic.project import Clip, Project, Track, track_to_dict
+from mathmusic.assets import load_asset
+from mathmusic.project import EFFECT_SPECS, Clip, Project, Track, track_to_dict
 from mathmusic.synth import PEAK, SAMPLE_RATE, add_notes
 from mathmusic.waves import envelope_values, resolve, wavetable
 
 TAIL_SECONDS = 3.0  # room for release, delay and reverb tails after the last note
 CONTROL_STEP = 64  # automation is evaluated every 64 samples and interpolated
 CACHE_BYTES = 400 * 1024 * 1024
-PEAKS_PER_BEAT = 8  # resolution of the level data sent to the UI for waveforms and meters
+PEAKS_PER_BEAT = 16  # resolution of the level data sent to the UI for waveforms and meters
 
 
 def peaks(stereo: np.ndarray | None, samples_per_bucket: int, scale: float = 1.0) -> list[float]:
@@ -88,12 +89,25 @@ def _automation(formula: str, beats: np.ndarray) -> np.ndarray:
     return np.interp(beats, coarse, values)
 
 
-def apply_chain(stereo, effects, where: str, errors: list, seconds_per_beat: float, sample_rate: int):
+def _resolve_params(effect, beats: np.ndarray) -> dict:
+    """Effect params with any formula of the beat turned into a per-sample curve, clamped to range."""
+    params = {}
+    for name, value in effect.params.items():
+        spec = EFFECT_SPECS[effect.type][name]
+        if spec[0] == "number" and isinstance(value, str):
+            params[name] = np.clip(_automation(value, beats), spec[2], spec[3])
+        else:
+            params[name] = value
+    return params
+
+
+def apply_chain(stereo, effects, where: dict, errors: list, seconds_per_beat: float, sample_rate: int, beats: np.ndarray):
     for index, effect in enumerate(effects):
         if effect.bypass:
             continue
         try:
-            stereo = dsp.apply_effect(stereo, effect.type, effect.params, sample_rate, seconds_per_beat)
+            params = _resolve_params(effect, beats)
+            stereo = dsp.apply_effect(stereo, effect.type, params, sample_rate, seconds_per_beat)
         except ValueError as exc:
             errors.append({**where, "field": f"effects[{index}]", "error": str(exc)})
     return stereo
@@ -106,55 +120,88 @@ class TrackRender:
     errors: list[dict]
 
 
+def _curve_clip_data(result: ClipRender) -> dict:
+    return {
+        "id": result.clip.id,
+        "kind": "curve",
+        "bounds": list(result.bounds),
+        "samples": [
+            {
+                "x": float(xv),
+                "y": float(yv) if np.isfinite(yv) else None,
+                "start": step.start,
+                "duration": step.duration,
+                "pitch": step.pitch,
+            }
+            for xv, yv, step in zip(result.x, result.y, result.steps)
+        ],
+    }
+
+
 def _render_track(track: Track, index: int, project: Project, total: int, audible: bool, sample_rate: int) -> TrackRender:
     spb = 60.0 / project.bpm
+    bucket = int(round(spb * sample_rate / PEAKS_PER_BEAT))
     errors: list[dict] = []
     where = {"track": track.id, "clip": None}
 
     clip_data: list[dict] = []
-    rendered: list[ClipRender] = []
+    curves: list[ClipRender] = []
+    samples: list[tuple[int, np.ndarray, float]] = []  # (start sample, audio, gain)
     for clip in track.clips:
+        if clip.kind == "audio":
+            try:
+                audio = load_asset(clip.asset)
+            except ValueError as exc:
+                errors.append({"track": track.id, "clip": clip.id, "field": "asset", "error": str(exc)})
+                clip_data.append({"id": clip.id, "kind": "audio", "peaks": [], "error": str(exc)})
+                continue
+            offset = int(round(clip.offset * spb * sample_rate))
+            length = int(round(clip.length * spb * sample_rate))
+            segment = audio[offset : offset + length]
+            samples.append((int(round(clip.start * spb * sample_rate)), segment, clip.gain))
+            clip_data.append(
+                {
+                    "id": clip.id,
+                    "kind": "audio",
+                    "seconds": len(audio) / sample_rate,
+                    "peaks": peaks(segment, bucket),
+                }
+            )
+            continue
         try:
             result = render_clip(clip, project)
         except ValueError as exc:
             errors.append({"track": track.id, "clip": clip.id, "field": "expression", "error": str(exc)})
-            clip_data.append({"id": clip.id, "samples": [], "error": str(exc)})
+            clip_data.append({"id": clip.id, "kind": "curve", "samples": [], "error": str(exc)})
             continue
-        rendered.append(result)
-        clip_data.append(
-            {
-                "id": clip.id,
-                "bounds": list(result.bounds),
-                "samples": [
-                    {
-                        "x": float(xv),
-                        "y": float(yv) if np.isfinite(yv) else None,
-                        "start": step.start,
-                        "duration": step.duration,
-                        "pitch": step.pitch,
-                    }
-                    for xv, yv, step in zip(result.x, result.y, result.steps)
-                ],
-            }
-        )
+        curves.append(result)
+        clip_data.append(_curve_clip_data(result))
 
-    try:
-        sound = resolve(track.sound, index)
-        envelope = track.envelope or sound.envelope
-        if envelope is not None:
-            envelope_values(envelope, np.linspace(0, 1, 16))
-        wavetable(sound.wave)
-    except ValueError as exc:
-        errors.append({**where, "field": "sound", "error": str(exc)})
-        return TrackRender(stereo=None, clips=clip_data, errors=errors)
+    sound = envelope = None
+    if curves:
+        try:
+            sound = resolve(track.sound, index)
+            envelope = track.envelope or sound.envelope
+            if envelope is not None:
+                envelope_values(envelope, np.linspace(0, 1, 16))
+            wavetable(sound.wave)
+        except ValueError as exc:
+            errors.append({**where, "field": "sound", "error": str(exc)})
+            sound = None  # curve clips fall silent; audio clips still play
 
-    if not audible or not rendered:
+    if not audible or not (samples or (curves and sound)):
         return TrackRender(stereo=None, clips=clip_data, errors=errors)
 
     mono = np.zeros(total)
-    for result in rendered:
-        notes = [step for step in result.steps if step.pitch is not None]
-        add_notes(mono, notes, sound.wave, envelope, spb, sample_rate, level=0.3 * result.clip.gain, gate=result.clip.gate)
+    if sound is not None:
+        for result in curves:
+            notes = [step for step in result.steps if step.pitch is not None]
+            add_notes(mono, notes, sound.wave, envelope, spb, sample_rate, level=0.3 * result.clip.gain, gate=result.clip.gate)
+    sampled = np.zeros((total, 2))
+    for start, segment, gain in samples:
+        n = min(len(segment), total - start)
+        if n > 0:
+            sampled[start : start + n] += gain * segment[:n]
 
     beats = np.arange(total) / sample_rate / spb
     gain: np.ndarray | float = db_to_gain(track.volume_db)
@@ -170,9 +217,16 @@ def _render_track(track: Track, index: int, project: Project, total: int, audibl
         except ValueError as exc:
             errors.append({**where, "field": "automation.pan", "error": str(exc)})
 
-    angle = (np.asarray(pan) + 1) * np.pi / 4  # equal-power pan
-    stereo = np.stack([mono * gain * np.cos(angle), mono * gain * np.sin(angle)], axis=1)
-    stereo = apply_chain(stereo, track.effects, where, errors, spb, sample_rate)
+    angle = (np.asarray(pan) + 1) * np.pi / 4  # equal-power pan; unity at centre for stereo samples
+    left, right = np.cos(angle), np.sin(angle)
+    stereo = np.stack(
+        [
+            gain * (mono * left + sampled[:, 0] * left * np.sqrt(2)),
+            gain * (mono * right + sampled[:, 1] * right * np.sqrt(2)),
+        ],
+        axis=1,
+    )
+    stereo = apply_chain(stereo, track.effects, where, errors, spb, sample_rate, beats)
     return TrackRender(stereo=stereo.astype(np.float32), clips=clip_data, errors=errors)
 
 
@@ -261,7 +315,8 @@ def render(project: Project, sample_rate: int = SAMPLE_RATE) -> ProjectRender:
     master_where = {"track": None, "clip": None}
     gain = db_to_gain(project.master.volume_db)
     if total:
-        mix = apply_chain(mix, project.master.effects, master_where, errors, spb, sample_rate)
+        beats = np.arange(total) / sample_rate / spb
+        mix = apply_chain(mix, project.master.effects, master_where, errors, spb, sample_rate, beats)
         mix *= gain
         if project.master.normalize:
             peak = float(np.abs(mix).max())

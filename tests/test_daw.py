@@ -313,6 +313,7 @@ def api(tmp_path, monkeypatch):
             except ValueError:
                 return exc.code, raw
 
+    call.base = base
     yield call
     server.shutdown()
     server.server_close()
@@ -361,10 +362,12 @@ def test_api_rejects_unsafe_project_name(api):
 
 
 def test_static_files_cannot_escape_the_web_folder(api):
-    for path in ["/static/../server.py", "/static/..%2Fserver.py", "/static/%2E%2E/server.py"]:
+    for path in ["/../server.py", "/..%2Fserver.py", "/%2E%2E/server.py", "/_app/..%2F..%2Fserver.py"]:
         status, _ = api(path)
         assert status == 404, path
-    status, _ = api("/static/app.css")
+    status, page = api("/")
+    assert status == 200 and b"<html" in page
+    status, _ = api("/favicon.svg")
     assert status == 200
 
 
@@ -488,7 +491,7 @@ def test_parse_range(header, expected):
 def test_audio_is_served_with_byte_ranges(api):
     _, body = api("/api/project/render", "POST", {"project": small_project()})
     url = body["audio"]["url"]
-    status, chunk = api(url, headers={"Range": "bytes=0-11"})
+    status, chunk = api(url, headers={"Range": "bytes=0-11"})  # seekable audio
     assert status == 206 and chunk[:4] == b"RIFF" and len(chunk) == 12
 
 
@@ -501,3 +504,182 @@ def test_cli_renders_a_project_file(tmp_path):
     assert (tmp_path / "song.wav").stat().st_size > 1000
     assert main(["render", str(path), "-o", str(tmp_path / "song.mid")]) == 0
     assert (tmp_path / "song.mid").read_bytes()[:4] == b"MThd"
+
+
+# ---------------------------------------------------------------- audio accuracy
+
+
+def dominant_frequency(mono: np.ndarray, sample_rate: int) -> float:
+    spectrum = np.abs(np.fft.rfft(mono * np.hanning(len(mono))))
+    return float(np.fft.rfftfreq(len(mono), 1 / sample_rate)[np.argmax(spectrum)])
+
+
+@pytest.mark.parametrize("root, expected_hz", [("A4", 440.0), ("C4", 261.63), ("A3", 220.0)])
+def test_rendered_note_has_the_right_pitch(root, expected_hz):
+    """A constant curve plays the middle of a one-note range: the root. Check the audio, not just the numbers."""
+    data = small_project(root=root, scale="chromatic", master={"normalize": False})
+    data["tracks"][0]["clips"][0].update(expression="0", notes=1, length=4, octaves=1, y_min=0, y_max=1)
+    sample_rate = 22050
+    result = engine.render(parse_project(data), sample_rate=sample_rate)
+    note = result.stereo[sample_rate // 4 : sample_rate, 0]  # the steady part of the note
+    assert dominant_frequency(note, sample_rate) == pytest.approx(expected_hz, rel=0.01)
+
+
+def test_rendered_notes_follow_the_curve_upwards():
+    data = small_project(scale="chromatic", master={"normalize": False})
+    data["tracks"][0]["clips"][0].update(expression="x", notes=4, length=8, x_start=0, x_end=1, octaves=1)
+    sample_rate = 22050
+    result = engine.render(parse_project(data), sample_rate=sample_rate)
+    beat = int(0.5 * sample_rate)  # 120 bpm
+    freqs = [dominant_frequency(result.stereo[i * 2 * beat + beat // 4 : i * 2 * beat + beat, 0], sample_rate) for i in range(4)]
+    assert freqs == sorted(freqs) and freqs[-1] / freqs[0] == pytest.approx(2.0, rel=0.03)  # one octave
+
+
+# ---------------------------------------------------------------- time signature, automation, samples
+
+
+def test_time_signature_is_validated_and_exported_to_midi():
+    from mathmusic.midi import project_to_midi
+
+    with pytest.raises(ProjectError, match="beats_per_bar"):
+        parse_project(small_project(beats_per_bar=0))
+    _, _, tracks = read_midi(project_to_midi(parse_project(small_project(beats_per_bar=7))))
+    signature = next(e for e in tracks[0] if e[1] == 0xFF and e[2][0] == 0x58)
+    assert signature[2][1] == 7
+
+
+def test_effect_params_can_be_formulas_of_the_beat():
+    data = small_project()
+    data["tracks"][0]["effects"] = [{"type": "lowpass", "params": {"cutoff": "200 + 100*x"}}]
+    effect = parse_project(data).tracks[0].effects[0]
+    assert effect.params["cutoff"] == "200 + 100*x"
+    data["tracks"][0]["effects"] = [{"type": "delay", "params": {"time": "x"}}]  # time is not automatable
+    with pytest.raises(ProjectError, match="time"):
+        parse_project(data)
+
+
+def test_filter_sweep_opens_over_time():
+    """A lowpass whose cutoff rises from 100 Hz to 8 kHz lets more of a 2 kHz tone through later."""
+    sample_rate = 22050
+    t = np.arange(4 * sample_rate) / sample_rate
+    tone = np.sin(2 * np.pi * 2000 * t)
+    x = np.stack([tone, tone], axis=1)
+    cutoff = np.linspace(100, 8000, len(t))
+    out = dsp.biquad(x, "lowpass", cutoff, 0.707, sample_rate)
+    # 0.05-0.2 s: the cutoff is still 200-500 Hz, far below the tone; by 3 s it is ~6 kHz
+    early = np.abs(out[int(0.05 * sample_rate) : int(0.2 * sample_rate), 0]).max()
+    late = np.abs(out[3 * sample_rate :, 0]).max()
+    assert early < 0.15 and late > 0.8
+
+
+def test_bad_effect_automation_is_reported():
+    data = small_project()
+    data["tracks"][0]["effects"] = [{"type": "reverb", "params": {"mix": "log(x - 100)"}}]
+    result = engine.render(parse_project(data), sample_rate=SR)
+    assert result.errors[0]["field"] == "effects[0]"
+
+
+def wav_bytes(seconds=1.0, rate=22050, freq=440.0, channels=1):
+    import io
+    import wave
+
+    t = np.arange(int(seconds * rate)) / rate
+    pcm = (0.5 * np.sin(2 * np.pi * freq * t) * 32767).astype("<i2")
+    if channels == 2:
+        pcm = np.repeat(pcm, 2)
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as out:
+        out.setnchannels(channels)
+        out.setsampwidth(2)
+        out.setframerate(rate)
+        out.writeframes(pcm.tobytes())
+    return buffer.getvalue()
+
+
+def test_import_audio_normalises_and_dedupes(tmp_path, monkeypatch):
+    from mathmusic import assets
+
+    monkeypatch.setenv("MATHMUSIC_HOME", str(tmp_path))
+    first = assets.import_audio(wav_bytes(), "tone.wav")
+    again = assets.import_audio(wav_bytes(), "copy.wav")
+    assert first["id"] == again["id"]
+    assert first["seconds"] == pytest.approx(1.0, abs=0.01)
+    audio = assets.load_asset(first["id"])
+    assert audio.shape[1] == 2  # mono became stereo
+    assert len(audio) == pytest.approx(44100, abs=50)  # resampled to 44.1 kHz
+    with pytest.raises(assets.AssetError):
+        assets.import_audio(b"not audio at all", "junk.wav")
+
+
+def test_audio_clip_plays_its_sample_at_its_position(tmp_path, monkeypatch):
+    from mathmusic import assets
+
+    monkeypatch.setenv("MATHMUSIC_HOME", str(tmp_path))
+    asset = assets.import_audio(wav_bytes(seconds=1.0, freq=330.0), "tone.wav")["id"]
+    data = small_project(master={"normalize": False})
+    data["tracks"][0]["clips"] = [{"id": "a1", "kind": "audio", "asset": asset, "start": 2, "length": 1}]  # beat 2 = 1 s
+    result = engine.render(parse_project(data))
+    rate = result.sample_rate
+    assert np.abs(result.stereo[: rate - 100]).max() == 0  # silent before 1 s
+    tone = result.stereo[rate + 1000 : rate + 10000, 0]
+    assert dominant_frequency(tone, rate) == pytest.approx(330.0, rel=0.02)
+    assert np.abs(result.stereo[int(1.6 * rate) :]).max() < 1e-6  # trimmed to 1 beat = 0.5 s
+    clip = result.tracks[0]["clips"][0]
+    assert clip["kind"] == "audio" and clip["peaks"]
+
+
+def test_audio_clip_offset_skips_into_the_sample(tmp_path, monkeypatch):
+    from mathmusic import assets
+
+    monkeypatch.setenv("MATHMUSIC_HOME", str(tmp_path))
+    asset = assets.import_audio(wav_bytes(seconds=1.0), "tone.wav")["id"]
+    data = small_project(master={"normalize": False})
+    data["tracks"][0]["clips"] = [{"id": "a1", "kind": "audio", "asset": asset, "start": 0, "length": 4, "offset": 1}]
+    result = engine.render(parse_project(data))
+    rate = result.sample_rate
+    # 1 s of sample minus a 0.5 s offset leaves 0.5 s of sound
+    assert np.abs(result.stereo[int(0.4 * rate) : int(0.45 * rate)]).max() > 0.1
+    assert np.abs(result.stereo[int(0.55 * rate) :]).max() < 1e-6
+
+
+def test_missing_sample_is_reported(tmp_path, monkeypatch):
+    monkeypatch.setenv("MATHMUSIC_HOME", str(tmp_path))
+    data = small_project()
+    data["tracks"][0]["clips"].append({"id": "a1", "kind": "audio", "asset": "0" * 64, "start": 0, "length": 4})
+    result = engine.render(parse_project(data), sample_rate=SR)
+    assert result.errors[0]["clip"] == "a1" and result.errors[0]["field"] == "asset"
+    assert np.abs(result.stereo).max() > 0  # the curve clip still plays
+
+
+def test_audio_clips_need_a_valid_asset_and_skip_midi():
+    from mathmusic.midi import project_to_midi
+
+    data = small_project()
+    data["tracks"][0]["clips"].append({"id": "a1", "kind": "audio", "asset": "../../etc", "start": 0, "length": 4})
+    with pytest.raises(ProjectError, match="asset"):
+        parse_project(data)
+    data["tracks"][0]["clips"][1]["asset"] = "f" * 64
+    _, _, tracks = read_midi(project_to_midi(parse_project(data)))
+    assert len([e for e in tracks[1] if e[1] & 0xF0 == 0x90]) == 4  # only the curve clip's notes
+
+
+def api_upload(api, data: bytes, filename: str, content_type="application/octet-stream", origin=None):
+    """POST raw bytes to the sample import endpoint."""
+    headers = {"Content-Type": content_type, "X-Filename": filename}
+    if origin:
+        headers["Origin"] = origin
+    req = urllib.request.Request(api.base + "/api/assets", method="POST", data=data, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            return res.status, json.loads(res.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
+
+
+def test_api_upload_audio(api):
+    status, body = api_upload(api, wav_bytes(), "tone.wav")
+    assert status == 200 and len(body["id"]) == 64 and body["name"] == "tone.wav"
+    status, _ = api_upload(api, wav_bytes(), "tone.wav", content_type="text/plain")
+    assert status == 415
+    status, _ = api_upload(api, wav_bytes(), "tone.wav", origin="https://evil.example")
+    assert status == 403

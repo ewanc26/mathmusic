@@ -1,0 +1,134 @@
+/* ================================================================
+ * app.css — mathmusic
+ *
+ * Tailwind v4 with the mathmusic palette as theme tokens: a black stage,
+ * a coral primary, and neon orbit colours for curves. Canvas drawing reads
+ * the same tokens through CSS variables (--color-*).
+ * ================================================================ */
+
+@import "tailwindcss";
+@import "@fontsource-variable/archivo/wdth.css";
+@import "@fontsource-variable/atkinson-hyperlegible-next/wght.css";
+@import "@fontsource/jetbrains-mono/400.css";
+
+@theme {
+  --color-stage: #000000;
+  --color-panel: #0e0e10;
+  --color-panel-2: #18181b;
+  --color-panel-3: #222226;
+  --color-line: #2b2b2e;
+  --color-ink: rgb(255 255 255 / 0.92);
+  --color-muted: #8f8f98;
+  --color-accent: #fe2c55;
+  --color-good: #25f4ee;
+  --color-bad: #ff5d6c;
+  --color-neon-cyan: #25f4ee;
+  --color-neon-purple: #a855f7;
+  --color-neon-yellow: #facc15;
+  --color-neon-green: #34d399;
+  --color-neon-blue: #60a5fa;
+
+  --font-sans: "Atkinson Hyperlegible Next Variable", system-ui, sans-serif;
+  --font-display: "Archivo Variable", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  html,
+  body {
+    height: 100%;
+    background: var(--color-stage);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  button:not(:disabled),
+  [role="tab"] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+  :focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-neon-cyan) 70%, transparent);
+    outline-offset: 1px;
+  }
+  input[type="range"],
+  input[type="checkbox"] {
+    accent-color: var(--color-accent);
+  }
+  dialog::backdrop {
+    background: rgb(0 0 0 / 0.6);
+  }
+}
+
+@layer components {
+  .input {
+    @apply min-w-0 rounded-[10px] border border-line bg-panel-2 px-2.5 py-1.5 text-ink;
+  }
+  .input.mono {
+    @apply font-mono;
+  }
+  .input.invalid {
+    @apply border-bad;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-full border border-line bg-panel-2 px-3 py-1.5 font-semibold whitespace-nowrap text-ink no-underline;
+  }
+  .btn:hover:not(:disabled) {
+    @apply border-neon-cyan;
+  }
+  .btn.sm {
+    @apply px-2.5 py-1 text-xs;
+  }
+  .btn.primary {
+    @apply border-accent bg-accent text-white;
+  }
+  .btn.danger:hover:not(:disabled) {
+    @apply border-bad text-bad;
+  }
+  .icon-btn {
+    @apply inline-flex size-8 items-center justify-center rounded-full border border-line bg-panel-2 text-ink;
+  }
+  .icon-btn:hover:not(:disabled) {
+    @apply border-neon-cyan;
+  }
+  .icon-btn.on {
+    @apply border-accent bg-[color-mix(in_srgb,var(--color-accent)_25%,var(--color-panel-2))];
+  }
+  .icon-btn.sm {
+    @apply size-6;
+  }
+  .chip {
+    @apply rounded-full border border-line bg-panel-2 px-2.5 py-0.5 text-[11px] text-muted;
+  }
+  .chip:hover {
+    @apply border-neon-cyan text-ink;
+  }
+  .field-label {
+    @apply text-xs text-muted;
+  }
+  .hint {
+    @apply text-xs text-muted;
+  }
+  .readout {
+    @apply font-mono text-xs text-muted;
+  }
+  .ms {
+    @apply h-5 w-[22px] rounded-[5px] border border-line bg-panel-3 p-0 text-[10px] font-bold text-muted;
+  }
+  .ms.mute.on {
+    @apply border-neon-yellow bg-neon-yellow text-black;
+  }
+  .ms.solo.on {
+    @apply border-neon-cyan bg-neon-cyan text-black;
+  }
+  .panel-canvas {
+    @apply block w-full rounded-xl border border-line bg-stage;
+  }
+}

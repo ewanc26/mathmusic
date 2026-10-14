@@ -7,3 +7,7 @@
 .claude/** linguist-vendored
 .opencode/** linguist-vendored
 .letta/** linguist-vendored
+
+# Built from frontend/ (SvelteKit); edit frontend/src, then run `pnpm build` in frontend/
+src/mathmusic/web/** linguist-generated
+frontend/pnpm-lock.yaml linguist-generated
