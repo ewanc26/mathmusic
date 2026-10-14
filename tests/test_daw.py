@@ -322,7 +322,7 @@ def api(tmp_path, monkeypatch):
 def test_api_catalogue(api):
     status, body = api("/api/catalogue")
     assert status == 200
-    assert set(body["effects"]) == {"shaper", "lowpass", "highpass", "delay", "reverb"}
+    assert set(body["effects"]) == {"shaper", "lowpass", "highpass", "delay", "reverb", "eq", "compressor"}
     assert body["effects"]["delay"]["feedback"]["max"] == 0.95
     assert "pentatonic" in body["scales"]
 
