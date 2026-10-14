@@ -4,6 +4,7 @@ import json
 import threading
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -283,6 +284,13 @@ def test_loading_a_missing_project(tmp_path, monkeypatch):
     monkeypatch.setenv("MATHMUSIC_HOME", str(tmp_path))
     with pytest.raises(LookupError):
         storage.load_project("nope")
+
+
+def test_default_home_is_ewanc26(monkeypatch):
+    from mathmusic import storage
+
+    monkeypatch.delenv("MATHMUSIC_HOME", raising=False)
+    assert storage.projects_dir() == Path.home() / ".ewanc26" / "mathmusic" / "projects"
 
 
 # ---------------------------------------------------------------- HTTP API
