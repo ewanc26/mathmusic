@@ -55,6 +55,7 @@
       class:on={track.mute}
       type="button"
       title="Mute (M)"
+      aria-label="{track.name} mute"
       aria-pressed={track.mute}
       onclick={() => daw.edit(() => (track.mute = !track.mute))}>M</button
     >
@@ -63,6 +64,7 @@
       class:on={track.solo}
       type="button"
       title="Solo (S)"
+      aria-label="{track.name} solo"
       aria-pressed={track.solo}
       onclick={() => daw.edit(() => (track.solo = !track.solo))}>S</button
     >

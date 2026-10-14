@@ -43,6 +43,7 @@
   }
 
   function onkeydown(event: KeyboardEvent) {
+    if (!daw.ready) return; // ignore shortcuts until the project has loaded
     const mod = event.metaKey || event.ctrlKey;
     const key = event.key.toLowerCase();
     if (mod && key === "s") {

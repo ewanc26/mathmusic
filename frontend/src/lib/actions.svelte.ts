@@ -2,6 +2,7 @@
 
 import { postForBlob, uploadAudio } from "./api";
 import { blankProject, daw, newAudioClip, newTrack } from "./daw.svelte";
+import { recorder } from "./recorder.svelte";
 import { toast } from "./toast.svelte";
 import { transport } from "./transport.svelte";
 import type { Clip } from "./types";
@@ -151,9 +152,16 @@ export async function save(): Promise<void> {
 
 export function newProject(): void {
   if (daw.dirty && !confirm("Discard unsaved changes and start a new project?")) return;
+  openProject(blankProject(), { seek: true });
+}
+
+/** Replace the project (New/Open): stop transient state so nothing leaks between songs. */
+export function openProject(project: ReturnType<typeof blankProject>, { seek = false } = {}): void {
+  recorder.cancel();
+  clipboard = null;
   transport.pause();
-  daw.load(blankProject());
-  transport.seekBeat(0);
+  daw.load(project);
+  if (seek) transport.seekBeat(0);
   view.fit(daw.songLength);
 }
 

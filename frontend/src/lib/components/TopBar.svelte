@@ -206,7 +206,11 @@
   <div class="flex items-center gap-1.5">
     {#if audioUrl}
       <a class="btn" href={audioUrl} download="{fileName}.wav">WAV</a>
-      <a class="btn" href={audioUrl.replace(/\.wav$/, ".mp3")} download="{fileName}.mp3">MP3</a>
+      {#if daw.status.ffmpeg}
+        <a class="btn" href={audioUrl.replace(/\.wav$/, ".mp3")} download="{fileName}.mp3">MP3</a>
+      {:else}
+        <button class="btn" type="button" disabled title="MP3 export needs ffmpeg on your PATH">MP3</button>
+      {/if}
     {/if}
     <button class="btn" type="button" title="Export the notes as a MIDI file for other DAWs" onclick={exportMidi}
       >MIDI</button
