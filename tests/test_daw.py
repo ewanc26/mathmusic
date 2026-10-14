@@ -472,6 +472,35 @@ def test_render_rejects_an_unknown_output_format_before_rendering(tmp_path, caps
     assert not any(tmp_path.glob("out*"))
 
 
+def test_render_reports_a_corrupt_project_file(tmp_path, capsys):
+    from mathmusic.cli import main
+
+    bad = tmp_path / "broken.json"
+    bad.write_text("{not json")
+    assert main(["render", str(bad), "-o", str(tmp_path / "x.wav")]) == 2
+    assert "error:" in capsys.readouterr().err
+    assert not (tmp_path / "x.wav").exists()
+
+
+def test_server_shutdown_closes_the_socket_and_removes_renders(monkeypatch):
+    from mathmusic import server
+
+    class Interrupted:
+        closed = False
+
+        def serve_forever(self):
+            raise KeyboardInterrupt  # what ctrl-c does while serving
+
+        def server_close(self):
+            Interrupted.closed = True
+
+    cleaned = []
+    monkeypatch.setattr(server, "make_server", lambda port: Interrupted())
+    monkeypatch.setattr(server.STORE, "cleanup", lambda: cleaned.append(True))
+    server.serve(port=8799, open_browser=False)  # returns normally on ctrl-c
+    assert Interrupted.closed and cleaned == [True]
+
+
 def test_stems_with_colliding_names_are_all_kept(tmp_path):
     from mathmusic.cli import main
 
