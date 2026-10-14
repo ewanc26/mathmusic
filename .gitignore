@@ -8,18 +8,18 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+/build/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
+/.eggs/
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/wheels/
 share/python-wheels/
 *.egg-info/
 .installed.cfg
@@ -163,3 +163,10 @@ cython_debug/
 # Generated renders and local examples
 examples/
 .env.*
+
+# Frontend build tooling
+node_modules/
+
+# SvelteKit (frontend/)
+frontend/.svelte-kit/
+frontend/build/

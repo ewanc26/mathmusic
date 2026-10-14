@@ -1,78 +1,102 @@
 # mathmusic
 
-Turn mathematical curves into music. Each expression is one voice. The curve is read left to right as time, and its height sets the pitch.
-
-## Graphing UI
+A DAW where everything is a graph. Music is arranged from mathematical curves: each clip plays a curve `y = f(x)`, read left to right as time, with its height mapped to pitch. Sounds, envelopes, automation and effects are formulas too, and every one of them is drawn as a graph while you edit it.
 
 ```bash
-mathmusic serve            # opens http://127.0.0.1:8765 in your browser
+mathmusic serve            # opens the DAW at http://127.0.0.1:8765
 ```
 
-- **Graph:** every expression is plotted live. Scroll to zoom, drag to pan, double-click or "Fit view" to reset. Hover a point to read x, y, the note it plays and its time.
-- **Piano roll:** the notes over time, coloured by voice. Click to seek.
-- **Transport:** play/pause (or Space), with a playhead on both the graph and the roll. Download the render as WAV or MP3.
-- **Expressions:** add, remove, enable or mute each voice, and pick its waveform. Errors show inline.
-- **Presets:** Three curves, Damped, Gaussian, Beating.
-- **Publish:** uploads the current render to plyr.fm. See below.
+## The DAW
 
-The browser sends your expressions to a local server, which uses the same engine as the CLI. What you see is what plays and what gets published. The server only listens on 127.0.0.1, and it refuses requests whose Host or Origin is not the local address, so other websites cannot use it to render or publish.
+- **Arrangement:** tracks of clips on a beat timeline in any time signature from 1/4 to 16/4. Drag clips to move them, including onto another track. Drag a clip's right edge to resize it, and double-click a lane to add one. Each lane shows its clips' curves, the track's rendered waveform, and its automation.
+- **Audio clips:** import WAV, MP3, FLAC, OGG, AIFF or M4A with the Audio button, or drop a file onto a lane. Samples are converted to 44.1 kHz stereo and stored once, by content, in `~/.mathmusic/assets`. Audio clips can be moved, trimmed (start offset and length), split and mixed like any other clip.
+- **Recording:** **Rec** (or R) records from your microphone while the project plays, so you can play along. The take lands as an audio clip where recording started, on the selected track. The browser asks for microphone permission the first time, and decoding the take needs ffmpeg.
+- **Clip editor:** the curve plotted against the scale's pitch lattice. Each horizontal line is a note, and each sample snaps to the nearest one. You set the expression, the x range, the number of notes, the start and length in beats, the rhythm, octave, range, gate and gain, invert, and an optional fixed y range.
+- **Tracks:** a sound (waveform, instrument or your own formula), an envelope over each note, volume, pan, mute and solo. The waveform's single cycle and the envelope are both plotted.
+- **Effects:** chains on every track and on the master: a waveshaper with a formula transfer curve, lowpass and highpass biquads, a feedback delay in beats, and a Schroeder reverb. You can bypass and reorder them.
+- **Automation:** gain and pan as formulas of the beat, plotted over the song, with presets for fades, tremolo, swells and auto-pan. Effect parameters can be automated too: press **ƒ** next to a filter cutoff or Q, a delay's feedback or mix, a reverb's mix, or a shaper's mix, and write it as a formula of the beat. For example, `300 + 2500*(0.5 + 0.5*sin(2*pi*x/16))` is a filter sweep.
+- **Mixer:** channel strips with faders, pan, mute and solo, and level meters that follow the playhead.
+- **Transport:** play and pause, loop (drag on the ruler), a bar.beat position, follow-playhead, and zoom. A **metronome** (K) clicks on every beat and accents the first beat of each bar. The click is a decaying sine burst made with Web Audio, and it's never part of the render or the exports.
+- **Editing:** undo and redo for every change, copy, paste, duplicate, split at the playhead, and delete. Keyboard shortcuts are listed under `?`.
+- **Projects:** save and open by name, plus an automatic draft in the browser. Projects are stored as JSON in `~/.mathmusic/projects`, or in `$MATHMUSIC_HOME/projects` if that's set.
+- **Export:** WAV, MP3 and MIDI. The MIDI file uses the same notes you hear, with General MIDI programs chosen to resemble each sound.
+- **Publish:** upload the mix to plyr.fm. See below.
+
+### Everything is a formula in x
+
+| Where | What x means | Example |
+| --- | --- | --- |
+| Clip | runs across the clip from "x from" to "x to" | `sin(x)*exp(-x/8)` |
+| Waveform | phase, one cycle from 0 to 1 | `sin(2*pi*x) + 0.3*sin(6*pi*x)` |
+| Envelope | position in the note, 0 to 1 | `exp(-4*x)` |
+| Gain automation | song position in beats; multiplies the volume | `min(1, x/8)` |
+| Pan automation | song position in beats; added to the pan | `sin(2*pi*x/8)` |
+| Effect parameter (ƒ) | song position in beats; clamped to the parameter's range | `400 + 300*sin(2*pi*x/8)` |
+| Shaper effect | the audio sample value | `tanh(3*x)` |
+
+Formulas accept `+ - * / ^ %`, `x`, `pi`, `tau`, `e`, and functions such as `sin cos tan exp log sqrt abs floor sign sinc tanh mod min max clip`. Anything else is rejected before evaluation. A formula that fails is reported on the clip, sound or effect that uses it, and the rest of the project still plays.
+
+### How a clip becomes notes
+
+- The curve is sampled at **notes** points across its x range. Each sample is one note, and together they fill the clip's length.
+- The y value maps onto the project's **scale** across **range** octaves, starting from the root plus the clip's **octave**. By default the curve's own min and max span the range. A **fixed y range** gives the same y the same pitch in every clip.
+- **Rhythm** `slope` gives steep parts of the curve shorter notes. **Gate** sets how much of each step sounds.
+- Undefined points (`log(-1)`, division by zero) become rests.
+
+### Sounds
+
+- **Waveforms:** `sine`, `triangle`, `saw`, `square`, `pulse`.
+- **Instruments:** each pairs a waveform with an envelope. `organ`, `clarinet` (odd harmonics), `brass`, `pluck`, `bell` (inharmonic partials), `fm`, `hollow`, `reed`.
+- **Custom formula:** any periodic expression in `x`, up to 300 characters. It must be defined over the whole cycle.
+
+`mathmusic instruments` prints every waveform and instrument with its formulas.
 
 ## Command line
 
 ```bash
-mathmusic "sin(x)" "x^2/(2*pi*pi) - 0.5" "2*sinc(x-4)" --end 12.566 --bpm 110 --plot -o out/three_curves.mp3
+mathmusic render ~/.mathmusic/projects/"My Song".json -o song.mp3   # render a saved project (.mp3, .wav or .mid)
+mathmusic "sin(x)" "x^2/8" --wave bell -o sketch.mp3                # quick sketch from expressions, no project
+mathmusic instruments
 ```
+
+The sketch mode keeps its original options: `--start`, `--end`, `--samples`, `--scale`, `--octaves`, `--pitch-range shared|per-voice`, `--rhythm`, `--wave`, `--plot` and `--publish`. Run `mathmusic --help` for the full list.
 
 ## Setup
 
-Needs Python 3.10+ and ffmpeg for MP3 output (`brew install ffmpeg`).
+Needs Python 3.10+, and ffmpeg for MP3 output and for importing formats other than WAV (`brew install ffmpeg`).
 
 ```bash
-uv venv .venv && uv pip install --python .venv/bin/python -e ".[plot,publish]"
+uv venv .venv && uv pip install --python .venv/bin/python -e ".[plot,publish,dev]"
+.venv/bin/mathmusic serve
 ```
 
-## How curves become notes
+The built interface ships inside the package (`src/mathmusic/web`), so running mathmusic doesn't need Node.
 
-- **x** runs from `--start` to `--end` in `--samples` steps. Each step is one note.
-- **y** is quantised onto `--scale` across `--octaves`. By default (`--pitch-range shared`) all voices share one range, so a curve with bigger values sounds higher and the relative amplitudes survive. `--pitch-range per-voice` stretches each curve to fill the range, which shows its shape but hides amplitude.
-- In the UI, **invert** flips a voice's direction, so high values sound low.
-- `--rhythm uniform` gives every note `--step` beats. `--rhythm slope` gives steep parts shorter notes.
-- Undefined points (`log(-1)`, division by zero) become rests.
-- Voices get different waveforms and are panned across the stereo field.
+## Developing the interface
 
-Expressions accept `+ - * / ^ %`, `x`, `pi`, `tau`, `e`, and functions such as `sin cos tan exp log sqrt abs floor sinc mod min max clip`. Anything else is rejected before evaluation.
-
-## Sounds: waveforms, instruments and formulas
-
-Every sound is a mathematical formula, so you can read it and change it.
-
-- A **waveform** is one period of a wave, written in `x`, where `x` is the phase in cycles (0 to 1). `sin(2*pi*x)` is a sine. Built in: `sine`, `triangle`, `saw`, `square`, `pulse` (25% duty).
-- An **instrument** pairs a waveform with an **envelope**, a formula in `x` where `x` is the position in the note (0 at the start, 1 at the end). Built in: `organ`, `clarinet`, `brass`, `pluck`, `bell`, `fm`, `hollow`, `reed`.
-- A **custom formula** is any periodic expression in `x`, up to 300 characters, e.g. `sin(2*pi*x) + 0.3*sin(6*pi*x)`. The formula is sampled once per cycle, so it must be defined everywhere in one period.
+The UI is a SvelteKit app (Svelte 5 runes, TypeScript, Tailwind v4) in `frontend/`, managed with pnpm. It builds to a static single page in `src/mathmusic/web`.
 
 ```bash
-mathmusic instruments                      # list every waveform and instrument with its formulas
-mathmusic "sin(x)" "x^2/8" --wave bell -o out/bells.mp3
-mathmusic "sin(x)" --wave "sin(2*pi*x) + 0.5*sin(4*pi*x)" -o out/custom.mp3
+cd frontend
+pnpm install
+pnpm dev        # Vite dev server with hot reload; proxies /api and /audio to mathmusic serve on :8765
+pnpm check      # svelte-check (types and accessibility)
+pnpm build      # writes the static app into ../src/mathmusic/web; commit the result
 ```
 
-In the UI, each expression has a sound menu. Choose **custom formula…** to type your own waveform.
+Run `.venv/bin/mathmusic serve --no-browser` alongside `pnpm dev`. Set `MATHMUSIC_API` to point the dev proxy at a different port.
+
+The server listens only on 127.0.0.1. It refuses requests whose Host or Origin isn't the local address, so other websites can't use it to render, save or publish.
 
 ## Publishing to plyr.fm
 
-`--publish` uploads the rendered MP3 to [plyr.fm](https://plyr.fm), which is music on AT Protocol. Create a developer token at plyr.fm/settings#developer and export it. Your account needs an artist profile on plyr.fm.
-
-```bash
-export PLYR_TOKEN="your_token"
-mathmusic "sin(3*x)*exp(-x/6)" --end 20 --rhythm slope --publish --title "Damped Three" --tags math,generative -o out/damped.mp3
-```
-
-Uploads go through the [`plyrfm`](https://pypi.org/project/plyrfm/) SDK (`tracks.upload`). The SDK does not accept cover art, so `--plot` images stay local.
+The Publish tab, or `--publish` in sketch mode, uploads the mix as an MP3 to [plyr.fm](https://plyr.fm), which is music on AT Protocol. Create a developer token at plyr.fm/settings#developer, then `export PLYR_TOKEN=…` before starting mathmusic. Your account needs an artist profile. Uploads go through the [`plyrfm`](https://pypi.org/project/plyrfm/) SDK.
 
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest
+.venv/bin/python -m pytest          # engine, effects, MIDI, samples and the HTTP API, including checks on the rendered audio
+cd frontend && pnpm check           # the interface's types
 ```
 
 ## Licence

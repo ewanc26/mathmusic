@@ -21,8 +21,13 @@ from mathmusic.synth import SAMPLE_RATE, encode_mp3, mix, write_wav
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mathmusic",
-        description="Turn mathematical curves into music. Each expression is one voice; "
+        description="Sketch mode: turn mathematical curves into music. Each expression is one voice; "
         "x runs left to right in time and y sets the pitch.",
+        epilog="other commands:\n"
+        "  mathmusic serve [--port N]                     open the DAW in your browser\n"
+        "  mathmusic render PROJECT.json [-o OUT]         render a saved project to .mp3, .wav or .mid\n"
+        "  mathmusic instruments                          list waveforms and instruments with their formulas",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("expressions", nargs="+", help='e.g. "sin(x)" "x^2/8" "5*sinc(x)"')
     parser.add_argument("--start", type=float, default=0.0, help="first x value (default 0)")
@@ -60,6 +65,50 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def render_main(argv: list[str]) -> int:
+    import json
+
+    from mathmusic import engine
+    from mathmusic.project import ProjectError, parse_project
+
+    parser = argparse.ArgumentParser(prog="mathmusic render", description="Render a saved DAW project to audio.")
+    parser.add_argument("project", type=Path, help="project .json file (saved from the UI)")
+    parser.add_argument("-o", "--output", type=Path, help="output .mp3, .wav or .mid (default: .mp3 next to the project)")
+    args = parser.parse_args(argv)
+
+    try:
+        project = parse_project(json.loads(args.project.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError, ProjectError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.output is not None and args.output.suffix.lower() in (".mid", ".midi"):
+        from mathmusic.midi import project_to_midi
+
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_bytes(project_to_midi(project))
+        print(f"wrote {args.output} ({len(project.tracks)} track(s), MIDI)")
+        return 0
+    result = engine.render(project)
+    for problem in result.errors:
+        place = " ".join(str(problem[k]) for k in ("track", "clip", "field") if problem.get(k))
+        print(f"warning: {place}: {problem['error']}", file=sys.stderr)
+    if result.stereo.size == 0:
+        print("error: the project has no clips to render", file=sys.stderr)
+        return 2
+
+    output: Path = args.output or args.project.with_suffix(".mp3")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        wav = write_wav(Path(tmp) / "mix.wav", result.stereo)
+        if output.suffix.lower() == ".wav":
+            wav.replace(output)
+        else:
+            encode_mp3(wav, output)
+    print(f"wrote {output} ({result.duration:.1f}s, {len(project.tracks)} track(s))")
+    return 0
+
+
 def instruments_main() -> int:
     from mathmusic.waves import describe_all
 
@@ -92,6 +141,8 @@ def main(argv: list[str] | None = None) -> int:
         return serve_main(argv[1:])
     if argv[:1] == ["instruments"]:
         return instruments_main()
+    if argv[:1] == ["render"]:
+        return render_main(argv[1:])
 
     args = build_parser().parse_args(argv)
     opts = Options(

@@ -1,0 +1,12 @@
+# Pre-commit hook: format the frontend (Svelte/TS/CSS/JSON/MD) with Prettier.
+# Runs locally (no remote repo) and needs `pnpm install` in frontend/ first.
+repos:
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: pnpm --dir frontend exec prettier --write --ignore-unknown
+        language: system
+        files: ^frontend/
+        types_or: [javascript, ts, json, yaml, markdown, css, svelte]
+        pass_filenames: true
