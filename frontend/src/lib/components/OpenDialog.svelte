@@ -1,12 +1,11 @@
 <!-- Lists saved projects and opens one. -->
 <script lang="ts">
   import { X } from "@lucide/svelte";
+  import { openProject } from "$lib/actions.svelte";
   import { api } from "$lib/api";
   import { daw } from "$lib/daw.svelte";
   import { toast } from "$lib/toast.svelte";
-  import { transport } from "$lib/transport.svelte";
   import type { Project } from "$lib/types";
-  import { view } from "$lib/view.svelte";
 
   let dialog = $state<HTMLDialogElement>();
   let folder = $state("");
@@ -31,9 +30,7 @@
     try {
       const project = await api.get<Project>(`/api/projects/${encodeURIComponent(name)}`);
       dialog?.close();
-      transport.pause();
-      daw.load(project);
-      view.fit(daw.songLength);
+      openProject(project);
       toast.show(`Opened “${name}”.`, "ok");
     } catch (e) {
       toast.show((e as Error).message, "err");

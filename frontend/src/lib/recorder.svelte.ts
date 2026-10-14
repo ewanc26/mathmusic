@@ -54,6 +54,21 @@ class Recorder {
     this.recording = false;
   }
 
+  /** Stop and throw the take away (used when the project is replaced). */
+  cancel = (): void => {
+    if (!this.recording) return;
+    if (this.media) {
+      this.media.onstop = null; // do not import the take into the new project
+      this.media.stop();
+    }
+    transport.pause();
+    for (const track of this.stream?.getTracks() ?? []) track.stop();
+    this.media = null;
+    this.stream = null;
+    this.chunks = [];
+    this.recording = false;
+  };
+
   private async finish(): Promise<void> {
     const type = this.media?.mimeType || "audio/webm";
     const extension = type.includes("ogg") ? "ogg" : type.includes("mp4") ? "m4a" : "webm";
