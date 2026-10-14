@@ -485,3 +485,45 @@ def test_clarinet_has_only_odd_harmonics():
     assert spectrum[1] > 0.5  # fundamental
     assert spectrum[2] < 1e-6 and spectrum[4] < 1e-6  # even harmonics absent
     assert spectrum[3] > 0.1  # third harmonic present
+
+
+def _project_with(**changes):
+    """A minimal valid project, with the given top-level changes applied."""
+    data = {"tracks": [{"id": "t1", "sound": "sine", "clips": [
+        {"id": "c1", "start": 0, "length": 4, "notes": 4, "expression": "x"}]}]}
+    data.update(changes)
+    return data
+
+
+@pytest.mark.parametrize("changes, message", [
+    ({"tracks": [{"id": "t1", "volume_db": "loud", "clips": []}]}, "must be a number"),
+    ({"beats_per_bar": 2.5}, "must be a whole number"),
+    ({"tracks": [{"id": "t1", "name": 5, "clips": []}]}, "must be text"),
+    ({"tracks": [{"id": "t1", "name": "a" * 500, "clips": []}]}, "is longer than"),
+    ({"tracks": "not a list"}, "must be a list"),
+    ({"tracks": [{"id": "t1", "effects": ["delay"], "clips": []}]}, "entries must be objects"),
+    ({"tracks": [{"id": "t1", "effects": [{"type": "delay", "params": [1]}], "clips": []}]}, "params must be an object"),
+    ({"tracks": [{"id": "t1", "clips": [{"id": "c1", "start": 0, "length": 4, "notes": 4, "expression": "x", "kind": "video"}]}]}, "kind must be one of"),
+    ({"tracks": [{"id": "t1", "clips": [{"id": "c1", "start": 0, "length": 4, "notes": 4, "expression": "x", "y_min": 1, "y_max": 0}]}]}, "y_max must be greater than y_min"),
+    ({"tracks": [{"id": "t1", "clips": [{"id": "c1", "start": 2000, "length": 100, "notes": 4, "expression": "x"}]}]}, "ends after beat"),
+    ({"tracks": [{"id": "t1", "automation": "x", "clips": []}]}, "automation must be an object"),
+    ({"tracks": [{"id": "t1", "sends": [{"bus": 5}], "clips": []}]}, "must be a track id"),
+    ([], "project must be an object"),
+    ({"master": "loud"}, "master must be an object"),
+    ({"loop_start": 10, "loop_end": 5}, "loop_end must be greater than loop_start"),
+])
+def test_project_validation_names_the_bad_field(changes, message):
+    from mathmusic.project import ProjectError, parse_project
+
+    data = changes if isinstance(changes, list) else _project_with(**changes)
+    with pytest.raises(ProjectError, match=message):
+        parse_project(data)
+
+
+def test_project_limits_are_enforced_for_notes_and_length():
+    from mathmusic.project import LIMITS, ProjectError, parse_project
+
+    clip = {"id": "c1", "start": 0, "length": 4, "notes": LIMITS["notes_per_clip"], "expression": "x"}
+    tracks = [{"id": f"t{i}", "clips": [dict(clip, id=f"c{i}")]} for i in range(9)]  # 9 * 1024 > 8000 notes
+    with pytest.raises(ProjectError, match="the limit is"):
+        parse_project({"tracks": tracks})
