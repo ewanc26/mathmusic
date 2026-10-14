@@ -151,7 +151,6 @@ def _apply_fades(segment: np.ndarray, clip: Clip, spb: float, sample_rate: int, 
     if clip.fade_in <= 0 and clip.fade_out <= 0:
         return segment
     n = len(segment)
-    position = np.arange(n) / max(n - 1, 1)  # 0 at the start of the clip, 1 at the end
     gain = np.ones(n)
     try:
         shape = lambda u: np.clip(compile_expression(clip.fade_curve).evaluate(u), 0.0, 1.0)

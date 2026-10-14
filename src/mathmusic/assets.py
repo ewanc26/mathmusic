@@ -92,6 +92,7 @@ def _decode(data: bytes, filename: str) -> np.ndarray:
             [ffmpeg, "-y", "-loglevel", "error", "-i", str(source), "-ac", "2", "-ar", str(SAMPLE_RATE),
              "-t", str(MAX_SECONDS), "-c:a", "pcm_s16le", str(target)],
             capture_output=True,
+            check=False,  # the return code is checked below, with a readable message
             text=True,
         )
         if result.returncode != 0 or not target.exists():
