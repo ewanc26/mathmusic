@@ -18,12 +18,14 @@ from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from math import pi
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import numpy as np
 
+from mathmusic import engine, storage
 from mathmusic.composer import PITCH_MODES, Options, build_voices
 from mathmusic.expr import Expression, ExpressionError
+from mathmusic.project import EFFECT_SPECS, LIMITS, MAX_FORMULA, default_project, parse_project, project_to_dict
 from mathmusic.scales import SCALES, parse_note
 from mathmusic.synth import SAMPLE_RATE, encode_mp3, mix, write_wav
 from mathmusic.waves import describe_all, resolve
@@ -212,6 +214,88 @@ def status() -> dict:
     }
 
 
+MAX_PLOT_POINTS = 1000
+
+
+def _parse_range(header: str | None, size: int):
+    """A single 'bytes=a-b' range as (start, end) inclusive, None for the whole file, or 'invalid'."""
+    if not header or not header.startswith("bytes=") or "," in header:
+        return None
+    first, _, last = header.removeprefix("bytes=").strip().partition("-")
+    try:
+        if first == "":  # suffix range: the last N bytes
+            length = int(last)
+            if length <= 0:
+                return "invalid"
+            return max(0, size - length), size - 1
+        start = int(first)
+        end = int(last) if last else size - 1
+    except ValueError:
+        return None
+    if start >= size or start > end:
+        return "invalid"
+    return start, min(end, size - 1)
+
+
+def catalogue() -> dict:
+    """Everything the DAW UI needs to build its menus."""
+    return {
+        **describe_all(),
+        "effects": {
+            kind: {
+                name: (
+                    {"kind": "formula", "default": spec[1]}
+                    if spec[0] == "formula"
+                    else {"kind": "number", "default": spec[1], "min": spec[2], "max": spec[3]}
+                )
+                for name, spec in params.items()
+            }
+            for kind, params in EFFECT_SPECS.items()
+        },
+        "scales": SCALES,  # name -> semitone degrees, so the UI can draw the pitch lattice
+        "limits": LIMITS,
+    }
+
+
+def render_daw(payload: dict) -> dict:
+    project = parse_project(payload.get("project"))
+    result = engine.render(project)
+    response = {
+        "tracks": result.tracks,
+        "errors": result.errors,
+        "length_beats": result.length_beats,
+        "bpm": project.bpm,
+        "duration": 0.0,
+        "audio": None,
+        "master_peaks": result.master_peaks,
+        "peaks_per_beat": engine.PEAKS_PER_BEAT,
+    }
+    if result.stereo.size:
+        render_id, wav = STORE.new_path()
+        write_wav(wav, result.stereo, SAMPLE_RATE)
+        STORE.add(render_id, wav)
+        response["audio"] = {"id": render_id, "url": f"/audio/{render_id}.wav"}
+        response["duration"] = result.duration
+    return response
+
+
+def plot_formula(payload: dict) -> dict:
+    """Sample any formula in x, so every formula in the UI can be drawn."""
+    formula = str(payload.get("formula", ""))
+    if len(formula) > MAX_FORMULA:
+        raise ValueError(f"formula is longer than {MAX_FORMULA} characters")
+    start = float(payload.get("start", 0.0))
+    end = float(payload.get("end", 1.0))
+    points = int(payload.get("points", 200))
+    if not (np.isfinite(start) and np.isfinite(end)) or end <= start:
+        raise ValueError("end must be greater than start")
+    if not 2 <= points <= MAX_PLOT_POINTS:
+        raise ValueError(f"points must be between 2 and {MAX_PLOT_POINTS}")
+    x = np.linspace(start, end, points)
+    y = Expression(formula).evaluate(x)
+    return {"x": x.tolist(), "y": [_number_or_none(v) for v in y]}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "mathmusic"
 
@@ -241,40 +325,106 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             return self._file(WEB_DIR / "index.html")
         if path.startswith("/static/"):
-            return self._file(WEB_DIR / path.removeprefix("/static/"))
-        if path == "/api/status":
-            return self._json(200, status())
-        if path == "/api/instruments":
-            return self._json(200, describe_all())
+            return self._static(path.removeprefix("/static/"))
         if path.startswith("/audio/"):
             return self._audio(path.removeprefix("/audio/"))
-        self.send_error(404)
+        self._handle(lambda: self._get_api(path))
 
     def do_POST(self) -> None:
+        if urlparse(self.path).path == "/api/project/midi":
+            return self._handle_json(self._midi, raw=True)
+        self._handle_json(self._post_api)
+
+    def _midi(self, path: str, payload: dict) -> None:
+        from mathmusic.midi import project_to_midi
+
+        project = parse_project(payload.get("project"))
+        data = project_to_midi(project)
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/midi")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_PUT(self) -> None:
+        self._handle_json(self._put_api)
+
+    def _get_api(self, path: str) -> dict:
+        if path == "/api/status":
+            return status()
+        if path == "/api/instruments":
+            return describe_all()
+        if path == "/api/catalogue":
+            return catalogue()
+        if path == "/api/project/default":
+            return project_to_dict(default_project())
+        if path == "/api/projects":
+            return {"projects": storage.list_projects(), "folder": str(storage.projects_dir())}
+        if path.startswith("/api/projects/"):
+            return storage.load_project(unquote(path.removeprefix("/api/projects/")))
+        raise FileNotFoundError(path)
+
+    def _post_api(self, path: str, payload: dict) -> dict:
+        if path == "/api/render":
+            return render_project(payload)
+        if path == "/api/project/render":
+            return render_daw(payload)
+        if path == "/api/plot":
+            return plot_formula(payload)
+        if path == "/api/publish":
+            return publish_project(payload)
+        raise FileNotFoundError(path)
+
+    def _put_api(self, path: str, payload: dict) -> dict:
+        if path.startswith("/api/projects/"):
+            return storage.save_project(unquote(path.removeprefix("/api/projects/")), payload.get("project"))
+        raise FileNotFoundError(path)
+
+    def _handle_json(self, route, raw: bool = False) -> None:
+        """Parse a JSON body and run `route`. With raw=True the route writes its own response."""
         if not self._request_allowed():
             return
         path = urlparse(self.path).path
-        # Requiring JSON forces a CORS preflight for any cross-site POST.
+        # Requiring JSON forces a CORS preflight for any cross-site request.
         if not self.headers.get("Content-Type", "").startswith("application/json"):
             return self._json(415, {"error": "requests must be application/json"})
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            if length > MAX_BODY:
-                return self._json(413, {"error": "request too large"})
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        if length > MAX_BODY:
+            return self._json(413, {"error": "request too large"})
+
+        def run() -> dict:
             payload = json.loads(self.rfile.read(length) or b"{}")
-            if path == "/api/render":
-                return self._json(200, render_project(payload))
-            if path == "/api/publish":
-                return self._json(200, publish_project(payload))
-            self.send_error(404)
-        except (ValueError, ExpressionError, json.JSONDecodeError) as exc:
-            self._json(400, {"error": str(exc)})
+            if not isinstance(payload, dict):
+                raise ValueError("request body must be a JSON object")
+            return route(path, payload)
+
+        self._handle(run, raw=raw)
+
+    def _handle(self, run, raw: bool = False) -> None:
+        """Run an API call and map exceptions to HTTP status codes."""
+        try:
+            body = run()
+            if raw:
+                return
+        except FileNotFoundError:
+            return self._json(404, {"error": "not found"})
         except LookupError as exc:
-            self._json(404, {"error": str(exc)})
+            return self._json(404, {"error": str(exc).strip("'\"")})
+        except (ValueError, ExpressionError) as exc:  # includes JSONDecodeError and ProjectError
+            return self._json(400, {"error": str(exc)})
         except RuntimeError as exc:
-            self._json(502, {"error": str(exc)})
+            return self._json(502, {"error": str(exc)})
         except Exception as exc:  # report unexpected failures to the UI rather than dropping the connection
-            self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
+            return self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
+        self._json(200, body)
+
+    def _static(self, relative: str) -> None:
+        root = WEB_DIR.resolve()
+        target = (root / unquote(relative)).resolve()
+        if not target.is_relative_to(root) or not target.is_file():
+            return self.send_error(404)
+        self._file(target)
 
     def _audio(self, name: str) -> None:
         render_id, _, ext = name.rpartition(".")
@@ -290,12 +440,27 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             return self.send_error(404)
         ctype = content_type or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-        self.send_response(200)
+        # Byte ranges make audio seekable: browsers will not seek media served without them.
+        span = _parse_range(self.headers.get("Range"), len(data))
+        if span == "invalid":
+            self.send_response(416)
+            self.send_header("Content-Range", f"bytes */{len(data)}")
+            self.end_headers()
+            return
+        if span is None:
+            self.send_response(200)
+            body = data
+        else:
+            start, end = span
+            body = data[start : end + 1]
+            self.send_response(206)
+            self.send_header("Content-Range", f"bytes {start}-{end}/{len(data)}")
         self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Accept-Ranges", "bytes")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(data)
+        self.wfile.write(body)
 
     def _json(self, code: int, body: dict) -> None:
         data = json.dumps(body).encode()
@@ -307,9 +472,14 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
+class _Server(ThreadingHTTPServer):
+    daemon_threads = True
+    # The UI loads its modules in one burst; the default backlog of 5 resets some connections.
+    request_queue_size = 128
+
+
 def make_server(port: int) -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    server.daemon_threads = True
+    server = _Server(("127.0.0.1", port), Handler)
     bound = server.server_address[1]  # differs from `port` when port is 0
     server.allowed_hosts = {f"127.0.0.1:{bound}", f"localhost:{bound}"}
     return server

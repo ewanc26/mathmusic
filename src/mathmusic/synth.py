@@ -21,29 +21,46 @@ def _midi_to_hz(pitch: int) -> float:
     return 440.0 * 2 ** ((pitch - 69) / 12)
 
 
-def render_voice(voice: Voice, seconds_per_beat: float, sample_rate: int) -> np.ndarray:
-    """Mono buffer for one voice."""
-    if not voice.notes:
-        return np.zeros(0, dtype=np.float32)
-    table = wavetable(voice.wave_formula)
-    last = max(note.start + note.duration for note in voice.notes)
-    buffer = np.zeros(int(np.ceil(last * seconds_per_beat * sample_rate)) + sample_rate // 4)
+def add_notes(
+    buffer: np.ndarray,
+    notes: list,
+    wave_formula: str,
+    envelope_formula: str | None,
+    seconds_per_beat: float,
+    sample_rate: int,
+    level: float = 0.3,
+    gate: float = 1.0,
+) -> None:
+    """Mix notes (start/duration in beats, MIDI pitch) into a mono buffer in place.
 
-    for note in voice.notes:
-        duration = note.duration * seconds_per_beat
-        n = max(1, int(duration * sample_rate))
+    `gate` is the fraction of each note's step that sounds.
+    """
+    table = wavetable(wave_formula)
+    for note in notes:
+        duration = note.duration * gate * seconds_per_beat
+        start = int(round(note.start * seconds_per_beat * sample_rate))
+        n = min(max(1, int(duration * sample_rate)), len(buffer) - start)
+        if n <= 0:
+            continue
         t = np.arange(n) / sample_rate
         # read one period of the wavetable at this pitch; the phase wraps at 1
         phase = (_midi_to_hz(note.pitch) * t) % 1.0
         wave = np.interp(phase, _GRID, table)
-        shape = envelope_values(voice.envelope_formula, t / duration)
+        shape = envelope_values(envelope_formula, t / duration)
         # short attack and release so neighbouring notes do not click
         attack = min(0.01, duration / 4)
         release = min(0.05, duration / 2)
         guard = np.minimum(t / attack, 1.0) * np.minimum((duration - t) / release, 1.0)
-        start = int(round(note.start * seconds_per_beat * sample_rate))
-        buffer[start : start + n] += 0.3 * guard * shape * wave
+        buffer[start : start + n] += level * guard * shape * wave
 
+
+def render_voice(voice: Voice, seconds_per_beat: float, sample_rate: int) -> np.ndarray:
+    """Mono buffer for one voice."""
+    if not voice.notes:
+        return np.zeros(0, dtype=np.float32)
+    last = max(note.start + note.duration for note in voice.notes)
+    buffer = np.zeros(int(np.ceil(last * seconds_per_beat * sample_rate)) + sample_rate // 4)
+    add_notes(buffer, voice.notes, voice.wave_formula, voice.envelope_formula, seconds_per_beat, sample_rate)
     return buffer.astype(np.float32)
 
 

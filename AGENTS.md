@@ -4,11 +4,17 @@ Guidance for AI coding agents working in **mathmusic**.
 
 ## Project overview
 
-Turns mathematical curves into music, with a local graphing UI and optional publishing to plyr.fm.
+A DAW where every clip, sound, envelope, automation and effect is a formula, with a local browser UI and optional publishing to plyr.fm.
 
-- Language: Python (3.10+), with plain JavaScript and CSS for the UI in `src/mathmusic/web/`
+- Language: Python (3.10+), with plain ES-module JavaScript and CSS for the UI in `src/mathmusic/web/` (no build step)
 - Default branch: main
-- Validation: `.venv/bin/python -m pytest` (the test suite is in `tests/`)
+- Validation: `.venv/bin/python -m pytest` (the test suite is in `tests/`); for UI changes, run `mathmusic serve` and check in a browser
+
+## Layout
+
+- `project.py`: the project model, validation and limits. `engine.py`: renders a project (clips, notes, tracks, effects, master). `dsp.py`: effects. `waves.py`: waveforms and instruments. `midi.py`: MIDI export. `storage.py`: project files.
+- `server.py`: local HTTP API and static files. `cli.py`: `serve`, `render`, `instruments`, and the expression sketch mode.
+- `web/js/`: `store.js` (state, undo, rendering), `arrange.js` (timeline), `tracks.js` (headers), `panels.js` (editor tabs), `graphs.js` (formula plots), `transport.js`, `main.js` (wiring).
 
 ## Working rules
 
