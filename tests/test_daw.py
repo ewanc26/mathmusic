@@ -703,3 +703,194 @@ def test_import_decodes_browser_recordings(tmp_path, monkeypatch):
     assert asset["seconds"] == pytest.approx(1.0, abs=0.05)
     audio = assets.load_asset(asset["id"])
     assert dominant_frequency(audio[4410:30000, 0], 44100) == pytest.approx(440.0, rel=0.01)
+
+
+# ---------------------------------------------------------------- EQ and compressor
+
+
+def sine(freq, seconds=1.0, rate=22050):
+    t = np.arange(int(seconds * rate)) / rate
+    mono = np.sin(2 * np.pi * freq * t)
+    return np.stack([mono, mono], axis=1)
+
+
+def steady_gain(out, x, rate=22050):
+    """Output amplitude over the steady part relative to the input's."""
+    tail = slice(rate // 2, None)
+    return np.abs(out[tail, 0]).max() / np.abs(x[tail, 0]).max()
+
+
+def test_peaking_eq_boosts_its_centre_and_leaves_the_rest():
+    rate = 22050
+    boost = dsp.eq(sine(1000, rate=rate), 1000.0, 12.0, 1.0, rate)
+    assert steady_gain(boost, sine(1000, rate=rate)) == pytest.approx(10 ** (12 / 20), rel=0.03)
+    far = dsp.eq(sine(100, rate=rate), 1000.0, 12.0, 1.0, rate)
+    assert steady_gain(far, sine(100, rate=rate)) == pytest.approx(1.0, rel=0.05)
+
+
+def test_peaking_eq_cut_is_the_mirror_of_boost():
+    rate = 22050
+    cut = dsp.eq(sine(1000, rate=rate), 1000.0, -12.0, 1.0, rate)
+    assert steady_gain(cut, sine(1000, rate=rate)) == pytest.approx(10 ** (-12 / 20), rel=0.03)
+
+
+def test_compressor_reduces_loud_material_by_its_ratio():
+    rate = 22050
+    loud = 0.8 * sine(440, seconds=2.0, rate=rate)  # about -2 dBFS peak
+    out = dsp.compressor(loud, threshold_db=-20.0, ratio=4.0, attack_ms=5, release_ms=50, makeup_db=0.0, sample_rate=rate)
+    level_in = 20 * np.log10(0.8)
+    level_out = 20 * np.log10(np.abs(out[rate:, 0]).max())
+    # the input peak is ~18 dB over the threshold; 4:1 keeps a quarter of that.
+    # The peak detector trails each sine peak slightly, so allow about 1 dB.
+    assert level_out == pytest.approx(-20 + (level_in + 20) / 4, abs=1.0)
+
+
+def test_compressor_leaves_quiet_material_alone():
+    rate = 22050
+    quiet = 0.05 * sine(440, seconds=1.0, rate=rate)
+    out = dsp.compressor(quiet, threshold_db=-20.0, ratio=8.0, attack_ms=5, release_ms=50, makeup_db=0.0, sample_rate=rate)
+    assert np.abs(out[rate // 2 :, 0]).max() == pytest.approx(np.abs(quiet[rate // 2 :, 0]).max(), rel=0.01)
+
+
+def test_eq_and_compressor_are_reachable_as_effects_and_reported_in_the_engine():
+    data = small_project(master={"normalize": False})
+    data["tracks"][0]["effects"] = [
+        {"type": "eq", "params": {"freq": 800, "gain": 6, "q": 1}},
+        {"type": "compressor", "params": {"threshold": -12}},
+    ]
+    result = engine.render(parse_project(data), sample_rate=SR)
+    assert result.errors == [] and np.abs(result.stereo).max() > 0
+
+
+# ---------------------------------------------------------------- fades, swing, buses
+
+
+def test_audio_clip_fade_in_and_out_shape_the_gain(tmp_path, monkeypatch):
+    from mathmusic import assets
+
+    monkeypatch.setenv("MATHMUSIC_HOME", str(tmp_path))
+    asset = assets.import_audio(wav_bytes(seconds=2.0, freq=440.0), "tone.wav")["id"]
+    data = small_project(master={"normalize": False})
+    # a 4-beat clip (2 s at 120 bpm) with a 1-beat fade in and out
+    data["tracks"][0]["clips"] = [
+        {"id": "a1", "kind": "audio", "asset": asset, "start": 0, "length": 4, "fade_in": 1, "fade_out": 1}
+    ]
+    result = engine.render(parse_project(data))
+    rate = result.sample_rate
+    assert np.abs(result.stereo[: int(0.02 * rate), 0]).max() < 0.05  # starts near silence
+    middle = np.abs(result.stereo[int(0.9 * rate) : int(1.1 * rate), 0]).max()
+    assert middle > 0.3  # full level in the middle
+    end = np.abs(result.stereo[int(1.95 * rate) : int(2.0 * rate), 0]).max()
+    assert end < 0.05  # fades out to the end
+
+
+def test_fade_curve_is_a_formula(tmp_path, monkeypatch):
+    from mathmusic import assets
+
+    monkeypatch.setenv("MATHMUSIC_HOME", str(tmp_path))
+    asset = assets.import_audio(wav_bytes(seconds=2.0), "tone.wav")["id"]
+    base = small_project(master={"normalize": False})
+    base["tracks"][0]["clips"] = [
+        {"id": "a1", "kind": "audio", "asset": asset, "start": 0, "length": 4, "fade_in": 2, "fade_curve": "x"}
+    ]
+    linear = engine.render(parse_project(base))
+    base["tracks"][0]["clips"][0]["fade_curve"] = "x*x"  # slower start
+    squared = engine.render(parse_project(base))
+    rate = linear.sample_rate
+    probe = slice(int(0.4 * rate), int(0.6 * rate))
+    assert np.abs(squared.stereo[probe, 0]).max() < np.abs(linear.stereo[probe, 0]).max()
+
+
+def test_bad_fade_formula_is_reported(tmp_path, monkeypatch):
+    from mathmusic import assets
+
+    monkeypatch.setenv("MATHMUSIC_HOME", str(tmp_path))
+    asset = assets.import_audio(wav_bytes(seconds=1.0), "tone.wav")["id"]
+    data = small_project()
+    data["tracks"][0]["clips"] = [
+        {"id": "a1", "kind": "audio", "asset": asset, "start": 0, "length": 2, "fade_in": 1, "fade_curve": "open('x')"}
+    ]
+    with pytest.raises(ProjectError):
+        parse_project(data)  # rejected by the parser, as any unsafe formula is
+
+
+def test_swing_delays_every_second_step_and_keeps_the_grid_closed():
+    from mathmusic.composer import NoteEvent
+    from mathmusic.engine import _swing
+
+    steps = [NoteEvent(start=i * 1.0, duration=1.0, pitch=60) for i in range(4)]
+    swung = _swing(steps, 0.25)
+    assert [s.start for s in swung] == [0.0, 1.25, 2.0, 3.25]
+    assert swung[1].start + swung[1].duration == pytest.approx(2.0)  # still ends where the next begins
+    assert swung[0] == steps[0] and swung[2] == steps[2]
+
+
+def test_swing_zero_is_a_straight_grid():
+    from mathmusic.composer import NoteEvent
+    from mathmusic.engine import _swing
+
+    steps = [NoteEvent(start=i * 0.5, duration=0.5, pitch=60) for i in range(6)]
+    assert _swing(steps, 0.0) == steps
+
+
+def test_send_routes_a_track_into_a_bus_as_well_as_the_master():
+    """A tone sent to a bus with level 1 and the bus at 0 dB adds about as much as the direct path."""
+    base = small_project(master={"normalize": False})
+    track = base["tracks"][0]
+    track.update(sound="sine", volume_db=0.0, pan=0.0)
+    track["clips"][0].update(expression="0", notes=1, length=4, octaves=1, y_min=0, y_max=1)
+    no_bus = engine.render(parse_project(base), sample_rate=SR)
+
+    with_bus = small_project(master={"normalize": False}, tracks=[
+        {**track, "sends": [{"bus": "b1", "level": 1.0}]},
+        {"id": "b1", "name": "Reverb return", "bus": True, "volume_db": -60.0, "clips": []},
+    ])
+    routed = engine.render(parse_project(with_bus), sample_rate=SR)
+    # the bus is at the -60 dB floor, so its copy adds only about a thousandth
+    assert np.abs(routed.stereo - no_bus.stereo).max() < 0.002
+
+    loud_bus = small_project(master={"normalize": False}, tracks=[
+        {**track, "sends": [{"bus": "b1", "level": 1.0}]},
+        {"id": "b1", "name": "Return", "bus": True, "volume_db": 0.0, "clips": []},
+    ])
+    doubled = engine.render(parse_project(loud_bus), sample_rate=SR)
+    # the direct path plus an equal bus copy: the mix doubles
+    assert np.abs(doubled.stereo).max() == pytest.approx(2 * np.abs(no_bus.stereo).max(), rel=0.02)
+
+
+def test_bus_effects_run_on_the_sent_signal():
+    base = small_project(master={"normalize": False}, tracks=[
+        {"id": "t1", "sound": "sine", "volume_db": 0.0, "sends": [{"bus": "b1", "level": 1.0}],
+         "clips": [{"id": "c1", "expression": "0", "notes": 1, "length": 4, "octaves": 1, "y_min": 0, "y_max": 1}]},
+        {"id": "b1", "bus": True, "volume_db": 0.0, "clips": [],
+         "effects": [{"type": "lowpass", "params": {"cutoff": 30}}]},
+    ])
+    result = engine.render(parse_project(base), sample_rate=SR)
+    direct = engine.render(parse_project({**base, "tracks": [{**base["tracks"][0], "sends": []}]}), sample_rate=SR)
+    # a 30 Hz lowpass removes the 440 Hz send, so the mix is the direct path plus almost nothing.
+    # Without the bus effect the send would double the peak (0.21 -> 0.42); with it the peak stays near 0.21.
+    assert np.abs(result.stereo).max() == pytest.approx(np.abs(direct.stereo).max(), rel=0.02)
+
+
+def test_bus_rules_are_enforced():
+    with pytest.raises(ProjectError, match="not a bus"):
+        parse_project(small_project(tracks=[{"id": "t1", "sends": [{"bus": "t2"}]}, {"id": "t2", "clips": []}]))
+    with pytest.raises(ProjectError, match="buses hold no clips"):
+        parse_project(small_project(tracks=[{"id": "b1", "bus": True, "clips": [{"id": "c1"}]}]))
+    with pytest.raises(ProjectError, match="cannot send"):
+        parse_project(small_project(tracks=[{"id": "b1", "bus": True, "clips": [], "sends": [{"bus": "b1"}]}]))
+    with pytest.raises(ProjectError, match="twice"):
+        parse_project(small_project(tracks=[{"id": "b1", "bus": True, "clips": []},
+            {"id": "t1", "clips": [], "sends": [{"bus": "b1"}, {"bus": "b1"}]}]))
+
+
+def test_track_rows_keep_project_order_with_buses_in_between():
+    data = small_project(tracks=[
+        {"id": "t1", "sound": "sine", "sends": [{"bus": "b1", "level": 0.5}],
+         "clips": [{"id": "c1", "expression": "x", "notes": 2, "length": 2, "octaves": 1}]},
+        {"id": "b1", "name": "Return", "bus": True, "clips": []},
+        {"id": "t2", "sound": "square", "clips": [{"id": "c2", "expression": "x", "notes": 2, "length": 2, "octaves": 1}]},
+    ])
+    result = engine.render(parse_project(data), sample_rate=SR)
+    assert [t["id"] for t in result.tracks] == ["t1", "b1", "t2"]
+    assert result.tracks[1].get("bus") is True

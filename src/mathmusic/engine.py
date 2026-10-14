@@ -77,6 +77,8 @@ def render_clip(clip: Clip, project: Project) -> ClipRender:
         NoteEvent(start=clip.start + step.start * stretch, duration=step.duration * stretch, pitch=step.pitch)
         for step in local
     ]
+    if clip.swing:
+        steps = _swing(steps, clip.swing)
     return ClipRender(clip=clip, x=x, y=y, steps=steps, bounds=fixed or value_bounds([y]))
 
 
@@ -120,6 +122,48 @@ class TrackRender:
     errors: list[dict]
 
 
+def _swing(steps: list[NoteEvent], amount: float) -> list[NoteEvent]:
+    """Delay every second step by `amount` of a step, the way a shuffle feels.
+
+    Each step keeps its length; the delayed step is shortened so it still ends
+    where the next one begins.
+    """
+    if len(steps) < 2:
+        return steps
+    out: list[NoteEvent] = []
+    for index, step in enumerate(steps):
+        if index % 2 == 1:
+            delay = amount * step.duration
+            nxt = steps[index + 1].start if index + 1 < len(steps) else step.start + step.duration
+            out.append(NoteEvent(start=step.start + delay, duration=max(0.0, nxt - (step.start + delay)), pitch=step.pitch))
+        else:
+            out.append(step)
+    return out
+
+
+def _apply_fades(segment: np.ndarray, clip: Clip, spb: float, sample_rate: int, errors: list, track_id: str) -> np.ndarray:
+    """Fade an audio segment in and out. `fade_curve` maps x from 0 to 1 to the gain shape."""
+    if clip.fade_in <= 0 and clip.fade_out <= 0:
+        return segment
+    n = len(segment)
+    position = np.arange(n) / max(n - 1, 1)  # 0 at the start of the clip, 1 at the end
+    gain = np.ones(n)
+    try:
+        shape = lambda u: np.clip(Expression(clip.fade_curve).evaluate(u), 0.0, 1.0)  # noqa: E731
+        if clip.fade_in > 0:
+            fade = clip.fade_in * spb * sample_rate
+            head = np.minimum(np.arange(n) / max(fade, 1.0), 1.0)
+            gain *= shape(head)
+        if clip.fade_out > 0:
+            fade = clip.fade_out * spb * sample_rate
+            tail = np.minimum((n - 1 - np.arange(n)) / max(fade, 1.0), 1.0)
+            gain *= shape(tail)
+    except ValueError as exc:
+        errors.append({"track": track_id, "clip": clip.id, "field": "fade_curve", "error": str(exc)})
+        return segment
+    return segment * gain[:, None]
+
+
 def _curve_clip_data(result: ClipRender) -> dict:
     return {
         "id": result.clip.id,
@@ -158,6 +202,7 @@ def _render_track(track: Track, index: int, project: Project, total: int, audibl
             offset = int(round(clip.offset * spb * sample_rate))
             length = int(round(clip.length * spb * sample_rate))
             segment = audio[offset : offset + length]
+            segment = _apply_fades(segment, clip, spb, sample_rate, errors, track.id)
             samples.append((int(round(clip.start * spb * sample_rate)), segment, clip.gain))
             clip_data.append(
                 {
@@ -297,20 +342,46 @@ def render(project: Project, sample_rate: int = SAMPLE_RATE) -> ProjectRender:
     mix = np.zeros((total, 2), dtype=np.float64)
     tracks: list[dict] = []
     errors: list[dict] = []
-    rendered: list[TrackRender] = []
+    rendered: list[TrackRender] = [TrackRender(stereo=None, clips=[], errors=[]) for _ in project.tracks]
+    rows: list[dict] = [{} for _ in project.tracks]
+    buses: dict[str, np.ndarray] = {}
+    for track in project.tracks:
+        if track.bus:
+            buses[track.id] = np.zeros((total, 2), dtype=np.float64)
+
+    # pass 1: clip tracks, each feeding the master and its sends
     for index, track in enumerate(project.tracks):
+        if track.bus:
+            continue
         audible = not track.mute and (track.solo or not any_solo)
         key = _track_key(track, index, project, total, audible, sample_rate)
         result = _CACHE.get(key)
         if result is None:
             result = _render_track(track, index, project, total, audible, sample_rate)
             _CACHE.put(key, result)
-        rendered.append(result)
+        rendered[index] = result
         if result.stereo is not None:
             mix += result.stereo
+            for send in track.sends:
+                # the send is taken after the track's fader and effects, at the send level
+                buses[send.bus] += result.stereo * send.level
         sound = resolve_name(track.sound, index)
-        tracks.append({"id": track.id, "sound": sound, "audible": audible, "clips": result.clips})
+        rows[index] = {"id": track.id, "sound": sound, "audible": audible, "clips": result.clips}
         errors.extend(result.errors)
+
+    # pass 2: bus tracks run their effects on the sum of their sends, then join the master
+    for index, track in enumerate(project.tracks):
+        if not track.bus:
+            continue
+        bus_mix = buses[track.id]
+        audible = not track.mute and (track.solo or not any_solo)
+        if audible and bus_mix.any():
+            beats = np.arange(total) / sample_rate / spb
+            bus_mix = apply_chain(bus_mix, track.effects, {"track": track.id, "clip": None}, errors, spb, sample_rate, beats)
+            bus_mix = bus_mix * db_to_gain(track.volume_db)
+            mix += bus_mix
+            rendered[index] = TrackRender(stereo=bus_mix.astype(np.float32), clips=[], errors=[])
+        rows[index] = {"id": track.id, "sound": "", "audible": audible, "clips": [], "bus": True}
 
     master_where = {"track": None, "clip": None}
     gain = db_to_gain(project.master.volume_db)
@@ -326,6 +397,7 @@ def render(project: Project, sample_rate: int = SAMPLE_RATE) -> ProjectRender:
 
     # levels for the UI, on the same scale as the final mix
     bucket = int(round(spb * sample_rate / PEAKS_PER_BEAT))
+    tracks = rows
     for info, result in zip(tracks, rendered):
         info["peaks"] = peaks(result.stereo, bucket, gain)
     return ProjectRender(

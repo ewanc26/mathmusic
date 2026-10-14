@@ -92,6 +92,16 @@ class ProjectError(ValueError):
     """The project dict is malformed or exceeds a limit."""
 
 
+def _check_formula(formula: str, where: str) -> None:
+    """Reject a formula the expression parser would refuse, at load time rather than render time."""
+    from mathmusic.expr import Expression, ExpressionError
+
+    try:
+        Expression(formula)
+    except ExpressionError as exc:
+        raise ProjectError(f"{where}: {exc}") from None
+
+
 @dataclass
 class Effect:
     type: str
@@ -300,6 +310,7 @@ def parse_clip(raw: dict, where: str) -> Clip:
         fade_out=_number(raw, "fade_out", 0.0, 0.0, LIMITS["length_beats"], where),
         fade_curve=_formula(raw, "fade_curve", where) or "x",
     )
+    _check_formula(clip.fade_curve, f"{where}.fade_curve")
     if clip.kind not in CLIP_KINDS:
         raise ProjectError(f"{where}.kind must be one of {', '.join(CLIP_KINDS)}")
     if clip.kind == "audio":
