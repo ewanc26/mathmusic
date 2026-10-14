@@ -9,13 +9,13 @@ mathmusic serve            # opens the DAW at http://127.0.0.1:8765
 ## The DAW
 
 - **Arrangement:** tracks of clips on a beat timeline in any time signature from 1/4 to 16/4. Drag clips to move them, including onto another track. Drag a clip's right edge to resize it, and double-click a lane to add one. Each lane shows its clips' curves, the track's rendered waveform, and its automation.
-- **Audio clips:** import WAV, MP3, FLAC, OGG, AIFF or M4A with the Audio button, or drop a file onto a lane. Samples are converted to 44.1 kHz stereo and stored once, by content, in `~/.ewanc26/mathmusic/assets`. Audio clips can be moved, trimmed (start offset and length), split and mixed like any other clip.
+- **Audio clips:** import WAV, MP3, FLAC, OGG, AIFF or M4A with the Audio button, or drop a file onto a lane. Samples are converted to 44.1 kHz stereo and stored once, by content, in `~/.ewanc26/mathmusic/assets`. Audio clips can be moved, trimmed (start offset and length), split and mixed like any other clip, and faded in and out with a `fade_curve` formula of the fade position (0 to 1).
 - **Recording:** **Rec** (or R) records from your microphone while the project plays, so you can play along. The take lands as an audio clip where recording started, on the selected track. The browser asks for microphone permission the first time, and decoding the take needs ffmpeg.
-- **Clip editor:** the curve plotted against the scale's pitch lattice. Each horizontal line is a note, and each sample snaps to the nearest one. You set the expression, the x range, the number of notes, the start and length in beats, the rhythm, octave, range, gate and gain, invert, and an optional fixed y range.
+- **Clip editor:** the curve plotted against the scale's pitch lattice. Each horizontal line is a note, and each sample snaps to the nearest one. You set the expression, the x range, the number of notes, the start and length in beats, the rhythm, the swing (shuffle) amount, octave, range, gate and gain, invert, and an optional fixed y range.
 - **Tracks:** a sound (waveform, instrument or your own formula), an envelope over each note, volume, pan, mute and solo. The waveform's single cycle and the envelope are both plotted.
-- **Effects:** chains on every track and on the master: a waveshaper with a formula transfer curve, lowpass and highpass biquads, a feedback delay in beats, and a Schroeder reverb. You can bypass and reorder them.
-- **Automation:** gain and pan as formulas of the beat, plotted over the song, with presets for fades, tremolo, swells and auto-pan. Effect parameters can be automated too: press **ƒ** next to a filter cutoff or Q, a delay's feedback or mix, a reverb's mix, or a shaper's mix, and write it as a formula of the beat. For example, `300 + 2500*(0.5 + 0.5*sin(2*pi*x/16))` is a filter sweep.
-- **Mixer:** channel strips with faders, pan, mute and solo, and level meters that follow the playhead.
+- **Effects:** chains on every track and on the master: a waveshaper with a formula transfer curve, lowpass and highpass biquads, a peaking EQ, a compressor, a feedback delay in beats, and a Schroeder reverb. You can bypass and reorder them.
+- **Automation:** gain and pan as formulas of the beat, plotted over the song, with presets for fades, tremolo, swells and auto-pan. Effect parameters can be automated too: press **ƒ** next to a filter cutoff or Q, a delay's feedback or mix, a reverb's mix, a shaper's mix, an EQ's frequency, gain or Q, or a compressor's threshold, and write it as a formula of the beat. For example, `300 + 2500*(0.5 + 0.5*sin(2*pi*x/16))` is a filter sweep.
+- **Mixer:** channel strips with faders, pan, mute and solo, and level meters that follow the playhead. Any track can also send to a **bus** (effect return) track, which runs its own effects and automation on the sum of its sends before joining the master.
 - **Transport:** play and pause, loop (drag on the ruler), a bar.beat position, follow-playhead, and zoom. A **metronome** (K) clicks on every beat and accents the first beat of each bar. The click is a decaying sine burst made with Web Audio, and it's never part of the render or the exports.
 - **Editing:** undo and redo for every change, copy, paste, duplicate, split at the playhead, and delete. Keyboard shortcuts are listed under `?`.
 - **Projects:** save and open by name, plus an automatic draft in the browser. Projects are stored as JSON in `~/.ewanc26/mathmusic/projects`, or in `$MATHMUSIC_HOME/projects` if that's set.
@@ -33,8 +33,9 @@ mathmusic serve            # opens the DAW at http://127.0.0.1:8765
 | Pan automation | song position in beats; added to the pan | `sin(2*pi*x/8)` |
 | Effect parameter (ƒ) | song position in beats; clamped to the parameter's range | `400 + 300*sin(2*pi*x/8)` |
 | Shaper effect | the audio sample value | `tanh(3*x)` |
+| Fade curve | position in the fade, 0 (silent) to 1 (full) | `x^2` |
 
-Formulas accept `+ - * / ^ %`, `x`, `pi`, `tau`, `e`, and functions such as `sin cos tan exp log sqrt abs floor sign sinc tanh mod min max clip`. Anything else is rejected before evaluation. A formula that fails is reported on the clip, sound or effect that uses it, and the rest of the project still plays.
+Formulas accept `+ - * / ^ %`, `x`, `pi`, `tau`, `e`, and functions such as `sin cos tan asin acos atan sinh cosh exp log log2 log10 sqrt abs floor ceil sign sinc tanh mod min max clip`. Anything else is rejected before evaluation. A formula that fails is reported on the clip, sound or effect that uses it, and the rest of the project still plays.
 
 ### How a clip becomes notes
 
@@ -55,11 +56,13 @@ Formulas accept `+ - * / ^ %`, `x`, `pi`, `tau`, `e`, and functions such as `sin
 
 ```bash
 mathmusic render ~/.ewanc26/mathmusic/projects/"My Song".json -o song.mp3   # render a saved project (.mp3, .wav or .mid)
+mathmusic render song.json --stems out/           # one WAV per clip track, before the master chain
 mathmusic "sin(x)" "x^2/8" --wave bell -o sketch.mp3                # quick sketch from expressions, no project
 mathmusic instruments
+mathmusic serve --port 9000 --no-browser
 ```
 
-The sketch mode keeps its original options: `--start`, `--end`, `--samples`, `--scale`, `--octaves`, `--pitch-range shared|per-voice`, `--rhythm`, `--wave`, `--plot` and `--publish`. Run `mathmusic --help` for the full list.
+The sketch mode takes `--start`, `--end`, `--samples`, `--scale`, `--root` (a MIDI note), `--octaves`, `--bpm`, `--step`, `--pitch-range shared|per-voice`, `--rhythm`, `--wave`, `--plot`, and `--publish` with `--title`, `--album`, `--tags` and `--description`. Run `mathmusic --help` for the full list.
 
 ## Setup
 
@@ -87,6 +90,27 @@ pnpm build      # writes the static app into ../src/mathmusic/web; commit the re
 Run `.venv/bin/mathmusic serve --no-browser` alongside `pnpm dev`. Set `MATHMUSIC_API` to point the dev proxy at a different port.
 
 The server listens only on 127.0.0.1. It refuses requests whose Host or Origin isn't the local address, so other websites can't use it to render, save or publish.
+
+## HTTP API
+
+The interface is a thin client over a small local JSON API. All responses are JSON unless noted.
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/status` | ffmpeg, plyrfm and `PLYR_TOKEN` availability |
+| GET | `/api/catalogue` | waveforms, instruments, effects and scales for the menus |
+| GET | `/api/project/default` | a small starter project |
+| GET | `/api/projects` | list saved projects and the projects folder |
+| GET | `/api/projects/{name}` | load one saved project |
+| PUT | `/api/projects/{name}` | save a project |
+| POST | `/api/project/render` | render a project; returns tracks, peaks, errors and an audio id |
+| POST | `/api/project/midi` | the project as a Standard MIDI File (not JSON) |
+| POST | `/api/plot` | sample any formula in x for a graph |
+| POST | `/api/publish` | upload a rendered mix to plyr.fm |
+| POST | `/api/assets` | import an audio file sent as `application/octet-stream` |
+| GET | `/audio/{id}.wav`, `/audio/{id}.mp3` | stream a render, with byte-range support |
+
+The older sketch endpoints (`POST /api/render`, `GET /api/instruments`) still exist but are not used by the UI.
 
 ## Publishing to plyr.fm
 
