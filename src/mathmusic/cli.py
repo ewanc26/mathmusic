@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 import tempfile
 from math import pi
@@ -131,12 +132,16 @@ def render_main(argv: list[str]) -> int:
 
     output: Path = args.output or args.project.with_suffix(".mp3")
     output.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory() as tmp:
-        wav = write_wav(Path(tmp) / "mix.wav", result.stereo)
-        if output.suffix.lower() == ".wav":
-            wav.replace(output)
-        else:
-            encode_mp3(wav, output)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            wav = write_wav(Path(tmp) / "mix.wav", result.stereo)
+            if output.suffix.lower() == ".wav":
+                wav.replace(output)
+            else:
+                encode_mp3(wav, output)
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+        print(f"error: could not write {output}: {exc}", file=sys.stderr)
+        return 2
     print(f"wrote {output} ({result.duration:.1f}s, {len(project.tracks)} track(s))")
     return 0
 
@@ -177,6 +182,18 @@ def main(argv: list[str] | None = None) -> int:
         return render_main(argv[1:])
 
     args = build_parser().parse_args(argv)
+    if not 2 <= args.samples <= 2000:
+        print("error: --samples must be between 2 and 2000", file=sys.stderr)
+        return 2
+    if not 1 <= args.octaves <= 4:
+        print("error: --octaves must be between 1 and 4", file=sys.stderr)
+        return 2
+    if args.bpm <= 0:
+        print("error: --bpm must be greater than 0", file=sys.stderr)
+        return 2
+    if args.step <= 0:
+        print("error: --step must be greater than 0", file=sys.stderr)
+        return 2
     opts = Options(
         start=args.start,
         end=args.end,
