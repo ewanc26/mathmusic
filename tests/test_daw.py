@@ -196,6 +196,18 @@ def test_bad_clip_formula_is_reported_and_others_still_play():
     assert result.stereo.size and np.abs(result.stereo).max() > 0
 
 
+def test_bad_arity_formula_is_reported_not_raised():
+    # min(x) parses but calls the whitelisted minimum() with too few arguments;
+    # it must be reported against its clip, not escape as a TypeError
+    data = small_project()
+    data["tracks"][0]["clips"].append(
+        {"id": "c2", "start": 4, "length": 4, "expression": "min(x)", "notes": 4}
+    )
+    result = engine.render(parse_project(data), sample_rate=SR)
+    assert [e["clip"] for e in result.errors] == ["c2"]
+    assert result.stereo.size and np.abs(result.stereo).max() > 0
+
+
 def test_mute_and_solo():
     data = small_project()
     data["tracks"].append(
@@ -316,6 +328,18 @@ def test_api_render_project(api):
 def test_api_render_rejects_invalid_project(api):
     status, body = api("/api/project/render", "POST", {"project": small_project(bpm=-5)})
     assert status == 400 and "bpm" in body["error"]
+
+
+def test_api_reports_bad_arity_formula_instead_of_crashing(api):
+    # a formula that parses but cannot run is a per-clip error, not a 500
+    data = small_project()
+    data["tracks"][0]["clips"][0]["expression"] = "min(x)"
+    status, body = api("/api/project/render", "POST", {"project": data})
+    assert status == 200
+    assert body["tracks"][0]["clips"][0]["error"]
+
+    status, body = api("/api/plot", "POST", {"formula": "min(x)", "start": 0, "end": 1})
+    assert status == 400 and "evaluate" in body["error"]
 
 
 def test_api_plot(api):

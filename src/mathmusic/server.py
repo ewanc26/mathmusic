@@ -155,7 +155,11 @@ def render_project(payload: dict) -> dict:
             errors.append({"index": index, "error": "waveform must be text"})
             continue
         try:
-            Expression(source)
+            expression = Expression(source)
+            # sample a few points so a formula that parses but cannot run (for
+            # example a whitelisted function called with the wrong arguments) is
+            # reported against this expression instead of failing the whole render
+            expression.evaluate(np.linspace(opts.start, opts.end, 8))
             resolve(waveform, index)  # validates the sound before the whole render fails
         except ValueError as exc:  # ExpressionError is a ValueError
             errors.append({"index": index, "error": str(exc)})

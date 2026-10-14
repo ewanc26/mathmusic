@@ -43,6 +43,25 @@ def test_undefined_points_are_nan_or_inf_not_errors():
     assert values[2] == pytest.approx(0.0)
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "min(x)",  # whitelisted function called with too few arguments
+        "max(x)",
+        "mod(x)",
+        "sin()",
+        "sin(x, 1)",
+        "1/0",  # literal division by zero (Python, not numpy)
+        "1%0",
+    ],
+)
+def test_evaluation_failures_raise_expression_error(source):
+    # a formula that parses but cannot run must raise ExpressionError, not a
+    # TypeError/ZeroDivisionError that would escape the engine's error handling
+    with pytest.raises(ExpressionError):
+        Expression(source).evaluate(np.array([0.0, 0.5, 1.0]))
+
+
 def test_pitch_table_covers_octaves_and_ends_on_tonic():
     pitches = pitch_table("major", 60, 1)
     assert pitches == [60, 62, 64, 65, 67, 69, 71, 72]
@@ -133,6 +152,25 @@ def test_render_project_returns_graph_data_and_audio(tmp_path):
     # undefined points are null in JSON, never NaN
     assert any(s["y"] is None for s in result["voices"][1]["samples"])
     assert result["duration"] > 0
+
+
+def test_render_project_reports_a_formula_that_cannot_run(tmp_path):
+    from mathmusic.server import render_project
+
+    # min(x) parses but calls minimum() with too few arguments: report it against
+    # its index (and still render the other expression), never raise
+    payload = {
+        "expressions": [
+            {"src": "min(x)", "enabled": True},
+            {"src": "sin(x)", "enabled": True},
+        ],
+        "options": {"start": 0, "end": 6, "samples": 20, "octaves": 1},
+    }
+    result = render_project(payload)
+    assert len(result["errors"]) == 1
+    assert result["errors"][0]["index"] == 0
+    assert "evaluate 'min(x)'" in result["errors"][0]["error"]
+    assert [v["index"] for v in result["voices"]] == [1]
 
 
 def test_render_project_rejects_bad_options():
