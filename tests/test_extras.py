@@ -48,6 +48,29 @@ def test_publish_uploads_with_the_token(tmp_path, monkeypatch):
     assert record["album"] == "Album" and record["tags"] == {"math"} and record["description"] == "notes"
 
 
+def test_publish_reports_a_failed_upload_as_a_runtime_error(tmp_path, monkeypatch):
+    import pytest as _pytest
+
+    class Tracks:
+        def upload(self, *args, **kwargs):
+            raise OSError("ProxyError: 403 Forbidden")
+
+    class PlyrClient:
+        def __init__(self, token):
+            self.tracks = Tracks()
+
+    module = types.ModuleType("plyrfm")
+    module.PlyrClient = PlyrClient
+    monkeypatch.setitem(sys.modules, "plyrfm", module)
+    monkeypatch.setenv("PLYR_TOKEN", "secret")
+    from mathmusic.publish import publish_to_plyr
+
+    audio = tmp_path / "a.mp3"
+    audio.write_bytes(b"not really audio")
+    with _pytest.raises(RuntimeError, match="upload to plyr.fm failed: ProxyError"):
+        publish_to_plyr(audio, "Title")
+
+
 def test_publish_needs_a_token(tmp_path, monkeypatch):
     _fake_plyrfm(monkeypatch, {})
     monkeypatch.delenv("PLYR_TOKEN", raising=False)
