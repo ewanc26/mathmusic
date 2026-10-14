@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mathmusic</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">mathmusic</div>
+    <nav class="presets" id="presets" aria-label="Presets"></nav>
+    <div class="status" id="status"></div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <section>
+        <div class="section-head">
+          <h2>Expressions</h2>
+          <button class="ghost" id="add-expr" type="button">+ Add</button>
+        </div>
+        <p class="hint">Each expression is one voice. x runs left to right in time; y sets the pitch.</p>
+        <ol class="exprs" id="exprs"></ol>
+      </section>
+
+      <section>
+        <h2>Domain</h2>
+        <div class="grid2">
+          <label>x start <input type="number" step="any" data-opt="start"></label>
+          <label>x end <input type="number" step="any" data-opt="end"></label>
+        </div>
+        <label class="range">
+          <span>Samples (notes per voice) <output id="samples-out"></output></span>
+          <input type="range" min="2" max="600" step="1" data-opt="samples">
+        </label>
+      </section>
+
+      <section>
+        <h2>Sound</h2>
+        <div class="grid2">
+          <label>Scale
+            <select data-opt="scale" id="scale-select"></select>
+          </label>
+          <label>Root note <input type="text" data-opt="root" placeholder="C4" spellcheck="false"></label>
+          <label>Octaves
+            <select data-opt="octaves">
+              <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option>
+            </select>
+          </label>
+          <label>Tempo (BPM) <input type="number" min="30" max="300" data-opt="bpm"></label>
+          <label>Beats per sample
+            <select data-opt="step">
+              <option value="0.25">1/4</option><option value="0.5">1/2</option><option value="1">1</option><option value="2">2</option>
+            </select>
+          </label>
+          <label>Rhythm
+            <select data-opt="rhythm">
+              <option value="uniform">uniform</option>
+              <option value="slope">follow slope</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Publish to plyr.fm</h2>
+        <p class="hint" id="publish-hint"></p>
+        <label>Title <input type="text" id="pub-title" maxlength="200"></label>
+        <label>Album <input type="text" id="pub-album" maxlength="200"></label>
+        <label>Tags <input type="text" id="pub-tags" placeholder="math, generative"></label>
+        <label>Description <textarea id="pub-desc" rows="3" maxlength="2000"></textarea></label>
+        <button class="primary full" id="publish" type="button">Publish track</button>
+        <p class="message" id="pub-message" role="status"></p>
+      </section>
+    </aside>
+
+    <main class="stage">
+      <div class="toolbar">
+        <button class="transport" id="play" type="button" aria-label="Play">▶</button>
+        <span class="time" id="time">0:00.0 / 0:00.0</span>
+        <span class="spacer"></span>
+        <span class="readout" id="readout">Hover the graph to read values</span>
+        <button class="ghost" id="fit" type="button">Fit view</button>
+        <a class="ghost link" id="dl-wav" href="#" download hidden>WAV</a>
+        <a class="ghost link" id="dl-mp3" href="#" download hidden>MP3</a>
+      </div>
+      <div class="graph-wrap">
+        <canvas id="graph" aria-label="Graph of the expressions"></canvas>
+        <div class="empty" id="empty" hidden>Enter an expression such as sin(x) to start.</div>
+      </div>
+      <div class="roll-label">Piano roll <span class="muted">(time across, pitch up; click to seek)</span></div>
+      <canvas id="roll" class="roll" aria-label="Piano roll of the notes"></canvas>
+      <div class="errors" id="errors" role="alert"></div>
+    </main>
+  </div>
+
+  <audio id="audio" preload="auto"></audio>
+  <script src="/static/app.js" type="module"></script>
+</body>
+</html>

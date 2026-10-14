@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mathmusic"
+version = "0.1.0"
+description = "Turn mathematical curves into music, and optionally publish the track to plyr.fm."
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26"]
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.8"]
+publish = ["plyrfm==0.0.1a25"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+mathmusic = "mathmusic.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mathmusic = ["web/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
