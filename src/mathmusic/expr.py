@@ -61,7 +61,7 @@ _ALLOWED_NODES = (
 
 
 class ExpressionError(ValueError):
-    """Raised when an expression cannot be parsed or is not allowed."""
+    """Raised when an expression cannot be parsed, is not allowed, or fails to evaluate."""
 
 
 class _Floats(ast.NodeTransformer):
@@ -113,12 +113,21 @@ class Expression:
         self._code = compile(tree, "<expression>", "eval")
 
     def evaluate(self, x: np.ndarray | float) -> np.ndarray:
-        """Evaluate over x. Returns an array shaped like x (NaN/inf where undefined)."""
+        """Evaluate over x. Returns an array shaped like x (NaN/inf where undefined).
+
+        A formula that parses but cannot run (a whitelisted function called with
+        the wrong arguments, a literal division by zero) raises ExpressionError,
+        so callers can report it against its clip, sound or effect instead of
+        letting a TypeError escape and take down the whole render.
+        """
         x = np.asarray(x, dtype=float)
         env = {"x": x, "_float": np.float64, **CONSTANTS, **FUNCTIONS}
-        with np.errstate(all="ignore"):
-            result = eval(self._code, {"__builtins__": {}}, env)
-        return np.broadcast_to(np.asarray(result, dtype=float), x.shape).copy()
+        try:
+            with np.errstate(all="ignore"):
+                result = eval(self._code, {"__builtins__": {}}, env)
+            return np.broadcast_to(np.asarray(result, dtype=float), x.shape).copy()
+        except (TypeError, ValueError, ArithmeticError) as exc:
+            raise ExpressionError(f"cannot evaluate {self.source!r}: {exc}") from None
 
     def __repr__(self) -> str:
         return f"Expression({self.source!r})"

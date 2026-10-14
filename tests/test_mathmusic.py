@@ -59,6 +59,28 @@ def test_wrong_argument_count_is_rejected_before_evaluation(source):
 def test_two_argument_functions_evaluate():
     assert Expression("clip(x, 0, 0.5)").evaluate(np.array([-1.0, 0.25, 2.0])).tolist() == [0.0, 0.25, 0.5]
     assert Expression("max(x, 0.5)").evaluate(np.array([0.0, 1.0])).tolist() == [0.5, 1.0]
+@pytest.mark.parametrize(
+    "source",
+    [
+        "min(x)",  # whitelisted function called with too few arguments
+        "max(x)",
+        "mod(x)",
+        "sin()",
+        "sin(x, 1)",
+    ],
+)
+def test_evaluation_failures_raise_expression_error(source):
+    # a formula that parses but cannot run must raise ExpressionError, not a
+    # TypeError that would escape the engine's error handling
+    with pytest.raises(ExpressionError):
+        Expression(source).evaluate(np.array([0.0, 0.5, 1.0]))
+
+
+@pytest.mark.parametrize("source", ["1/0", "1%0", "1/(x-0.5)"])
+def test_division_by_zero_is_an_undefined_point_not_an_error(source):
+    # the README: division by zero is undefined and becomes a rest, like log(-1)
+    values = Expression(source).evaluate(np.array([0.5, 1.0]))
+    assert not np.isfinite(values[0])  # undefined at x = 0.5 for every form above
 
 
 def test_pitch_table_covers_octaves_and_ends_on_tonic():
@@ -151,6 +173,25 @@ def test_render_project_returns_graph_data_and_audio(tmp_path):
     # undefined points are null in JSON, never NaN
     assert any(s["y"] is None for s in result["voices"][1]["samples"])
     assert result["duration"] > 0
+
+
+def test_render_project_reports_a_formula_that_cannot_run(tmp_path):
+    from mathmusic.server import render_project
+
+    # min(x) parses but calls minimum() with too few arguments: report it against
+    # its index (and still render the other expression), never raise
+    payload = {
+        "expressions": [
+            {"src": "min(x)", "enabled": True},
+            {"src": "sin(x)", "enabled": True},
+        ],
+        "options": {"start": 0, "end": 6, "samples": 20, "octaves": 1},
+    }
+    result = render_project(payload)
+    assert len(result["errors"]) == 1
+    assert result["errors"][0]["index"] == 0
+    assert "min" in result["errors"][0]["error"]
+    assert [v["index"] for v in result["voices"]] == [1]
 
 
 def test_render_project_rejects_bad_options():
