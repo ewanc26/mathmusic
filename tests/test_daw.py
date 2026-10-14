@@ -684,6 +684,36 @@ def test_import_audio_normalises_and_dedupes(tmp_path, monkeypatch):
         assets.import_audio(b"not audio at all", "junk.wav")
 
 
+def test_builtin_wav_reader_decodes_every_sample_width_and_channel_count():
+    import io
+    import wave
+
+    from mathmusic import assets
+    from mathmusic.synth import SAMPLE_RATE
+
+    def wav_bytes(width, channels, frames):
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as out:
+            out.setnchannels(channels)
+            out.setsampwidth(width)
+            out.setframerate(SAMPLE_RATE)
+            out.writeframes(frames)
+        return buffer.getvalue()
+
+    # 8-bit is unsigned: 128 is silence, 0 is full negative
+    eight = assets._read_wav(wav_bytes(1, 1, bytes([128, 255, 0])))
+    assert eight[:, 0] == pytest.approx([0.0, 127 / 128, -1.0])
+    # 24-bit is signed and little-endian: the sign must extend across the top byte
+    raw24 = b"".join(v.to_bytes(3, "little", signed=True) for v in [(1 << 23) - 1, -1, -(1 << 23)])
+    assert assets._read_wav(wav_bytes(3, 1, raw24))[:, 0] == pytest.approx([1.0, 0.0, -1.0], abs=1e-6)
+    # 32-bit signed
+    raw32 = np.array([2**31 - 1, -(2**31), 0], dtype="<i4").tobytes()
+    assert assets._read_wav(wav_bytes(4, 1, raw32))[:, 0] == pytest.approx([1.0, -1.0, 0.0], abs=1e-6)
+    # more than two channels: the first two are kept
+    raw = np.array([1000, 2000, 3000, 4000, 5000, 6000], dtype="<i2").tobytes()
+    assert assets._read_wav(wav_bytes(2, 3, raw)).shape == (2, 2)
+
+
 def test_wav_without_a_sample_rate_is_a_clear_error():
     import struct
 
