@@ -389,6 +389,8 @@ def render(project: Project, sample_rate: int = SAMPLE_RATE) -> ProjectRender:
             continue
         bus_mix = buses[track.id]
         audible = not track.mute and (track.solo or not any_solo)
+        if not (audible and bus_mix.any()):
+            _check_idle_bus(track, total, spb, sample_rate, errors)
         if audible and bus_mix.any():
             beats = np.arange(total) / sample_rate / spb
             bus_mix = apply_chain(bus_mix, track.effects, {"track": track.id, "clip": None}, errors, spb, sample_rate, beats)
@@ -450,6 +452,30 @@ def resolve_name(spec: str | None, index: int) -> str:
         return resolve(spec, index).name
     except ValueError:
         return spec or ""
+
+
+def _check_idle_bus(track: Track, total: int, spb: float, sample_rate: int, errors: list) -> None:
+    """A bus that is muted, or has nothing sent to it, is not rendered. Its formulas are still
+    checked, on a 512-point grid across the song, so a formula that is undefined everywhere is
+    reported rather than silently ignored. Points that are undefined only in places are not
+    caught here; those are reported when the bus is rendered."""
+    if total <= 0:
+        return
+    grid = np.linspace(0, total / sample_rate / spb, 512)
+    where = {"track": track.id, "clip": None}
+    for index, effect in enumerate(track.effects):
+        if effect.bypass:
+            continue
+        try:
+            _resolve_params(effect, grid)
+        except ValueError as exc:
+            errors.append({**where, "field": f"effects[{index}]", "error": str(exc)})
+    for field, formula in (("automation.gain", track.gain_automation), ("automation.pan", track.pan_automation)):
+        if formula:
+            try:
+                _automation(formula, grid)
+            except ValueError as exc:
+                errors.append({**where, "field": field, "error": str(exc)})
 
 
 def render_stems(project: Project, sample_rate: int = SAMPLE_RATE) -> dict[str, np.ndarray]:

@@ -1264,3 +1264,14 @@ def test_bad_sound_silences_curve_clips_but_audio_clips_still_play(tmp_path, mon
     result = engine.render(parse_project(data), sample_rate=SR)
     assert any(e["field"] == "sound" for e in result.errors)
     assert np.abs(result.stereo).max() > 0
+
+
+def test_idle_bus_formulas_are_reported_even_though_nothing_is_sent():
+    data = small_project()
+    data["tracks"].append({"id": "b1", "sound": "sine", "bus": True, "clips": [],
+                           "automation": {"pan": "log(x - 100)"},
+                           "effects": [{"type": "lowpass", "params": {"cutoff": "log(x - 100)"}}]})
+    result = engine.render(parse_project(data), sample_rate=SR)  # nothing is sent to b1
+    fields = {(e["track"], e["field"]) for e in result.errors}
+    assert ("b1", "automation.pan") in fields and ("b1", "effects[0]") in fields
+    assert np.abs(result.stereo).max() > 0  # the idle bus adds no sound, but the track still plays
