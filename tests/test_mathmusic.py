@@ -293,3 +293,87 @@ def test_render_project_passes_invert_and_pitch_mode():
     assert result["voices"][1]["inverted"] is False
     with pytest.raises(ValueError):
         render_project({"expressions": [{"src": "x"}], "options": {"pitch_mode": "bogus"}})
+
+
+def test_builtin_wavetables_have_expected_shapes():
+    from mathmusic.waves import BUILTIN_WAVES, wavetable
+
+    sine = wavetable(BUILTIN_WAVES["sine"])
+    assert sine[len(sine) // 4] == pytest.approx(1.0, abs=1e-3)  # quarter cycle is the peak
+    square = wavetable(BUILTIN_WAVES["square"])
+    assert square[len(square) // 4] == pytest.approx(1.0)
+    assert square[3 * len(square) // 4] == pytest.approx(-1.0)
+    pulse = wavetable(BUILTIN_WAVES["pulse"])
+    assert pulse[len(pulse) // 8] == pytest.approx(1.0)  # inside the 25% duty window
+    assert pulse[len(pulse) // 2] == pytest.approx(-1.0)
+
+
+def test_every_instrument_preset_is_a_valid_formula_pair():
+    from mathmusic.waves import INSTRUMENTS, envelope_values, resolve, wavetable
+
+    positions = np.linspace(0, 1, 50)
+    for name, inst in INSTRUMENTS.items():
+        table = wavetable(inst.wave)
+        assert np.isfinite(table).all() and np.abs(table).max() == pytest.approx(1.0), name
+        gain = envelope_values(inst.envelope, positions)
+        assert np.isfinite(gain).all() and gain.min() >= -1.0001 and gain.max() <= 1.0001, name
+        assert resolve(name).instrument == name
+
+
+def test_custom_formula_is_accepted_and_bad_ones_rejected():
+    from mathmusic.waves import resolve
+
+    good = "sin(2*pi*x) + 0.5*sin(4*pi*x)"
+    assert resolve(good).wave == good
+    for bad in ["__import__('os')", "sin(2*pi*x", "1/x", "0*x", "x" * 301, "y"]:
+        with pytest.raises(ValueError):
+            resolve(bad)
+
+
+def test_voice_takes_instrument_formulas():
+    voice = build_voices(["x"], Options(samples=4, octaves=1), waveforms=["pluck"])[0]
+    assert voice.instrument == "pluck"
+    assert voice.envelope_formula == "exp(-6*x)"
+    assert voice.waveform == "pluck"
+
+
+def test_pluck_envelope_decays_within_each_note():
+    from mathmusic.synth import render_voice
+
+    voice = build_voices(["1"], Options(samples=2, octaves=1, step_beats=1.0), waveforms=["pluck"])[0]
+    sample_rate = 8000
+    buffer = render_voice(voice, seconds_per_beat=1.0, sample_rate=sample_rate)  # one second per note
+    onset = np.abs(buffer[: sample_rate // 10]).mean()
+    tail = np.abs(buffer[int(0.8 * sample_rate) : int(0.9 * sample_rate)]).mean()
+    assert onset > 5 * tail
+
+
+def test_server_reports_bad_sound_per_expression(http_server):
+    from mathmusic.server import render_project
+
+    result = render_project(
+        {
+            "expressions": [{"src": "x", "waveform": "bell"}, {"src": "x", "waveform": "__import__('os')"}],
+            "options": {"samples": 4, "octaves": 1},
+        }
+    )
+    assert result["voices"][0]["instrument"] == "bell"
+    assert result["errors"][0]["index"] == 1
+
+
+def test_instrument_catalogue_endpoint(http_server):
+    base, _ = http_server
+    status, body = _request(f"{base}/api/instruments")
+    assert status == 200
+    names = {inst["name"] for inst in json.loads(body)["instruments"]}
+    assert {"organ", "clarinet", "brass", "pluck", "bell", "fm", "hollow", "reed"} <= names
+
+
+def test_clarinet_has_only_odd_harmonics():
+    from mathmusic.waves import INSTRUMENTS, wavetable
+
+    table = wavetable(INSTRUMENTS["clarinet"].wave)[:-1]  # drop the repeated endpoint
+    spectrum = np.abs(np.fft.rfft(table))
+    assert spectrum[1] > 0.5  # fundamental
+    assert spectrum[2] < 1e-6 and spectrum[4] < 1e-6  # even harmonics absent
+    assert spectrum[3] > 0.1  # third harmonic present

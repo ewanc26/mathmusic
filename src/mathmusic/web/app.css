@@ -318,3 +318,10 @@ output { color: var(--text); font-family: var(--mono); }
   .stage { height: auto; }
   .graph-wrap { height: 380px; flex: none; }
 }
+
+.wave-formula {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.wave-formula[hidden] { display: none; }
