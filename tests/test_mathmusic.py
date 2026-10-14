@@ -397,6 +397,11 @@ def test_malformed_content_length_is_a_400_not_a_crash(http_server, length):
     )
     assert status == 400
     assert "Content-Length" in json.loads(body)["error"]
+def test_plot_rejects_infinite_point_count():
+    from mathmusic.server import plot_formula
+
+    with pytest.raises(ValueError, match="must be numbers"):
+        plot_formula({"formula": "x", "points": float("inf")})
 
 
 def test_instrument_catalogue_endpoint(http_server):
