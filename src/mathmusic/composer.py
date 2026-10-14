@@ -20,8 +20,8 @@ import numpy as np
 
 from mathmusic.expr import Expression
 from mathmusic.scales import pitch_table
+from mathmusic.waves import resolve
 
-WAVEFORMS = ("sine", "triangle", "saw", "square")
 PITCH_MODES = ("shared", "per-voice")
 
 
@@ -37,8 +37,11 @@ class Voice:
     expression: Expression
     x: np.ndarray
     y: np.ndarray
-    waveform: str
+    waveform: str  # name shown to the user: a waveform, an instrument, or the formula
+    wave_formula: str  # one period, in x
+    envelope_formula: str | None  # over one note, in x; None means the default fade
     pan: float  # -1 (left) .. 1 (right)
+    instrument: str | None = None
     inverted: bool = False  # high values sound low (polarity)
     steps: list[NoteEvent] = field(default_factory=list)  # one per sample, rests included
 
@@ -166,17 +169,18 @@ def build_voices(
     voices = []
     for index, (expression, y) in enumerate(zip(expressions, curves)):
         pan = 0.0 if count == 1 else -0.6 + 1.2 * index / (count - 1)
-        waveform = (waveforms[index] if waveforms else None) or WAVEFORMS[index % len(WAVEFORMS)]
-        if waveform not in WAVEFORMS:
-            raise ValueError(f"unknown waveform {waveform!r}; choose from {', '.join(WAVEFORMS)}")
+        sound = resolve(waveforms[index] if waveforms else None, index)
         invert = bool(inverts[index]) if inverts else False
         voices.append(
             Voice(
                 expression=expression,
                 x=x,
                 y=y,
-                waveform=waveform,
+                waveform=sound.name,
+                wave_formula=sound.wave,
+                envelope_formula=sound.envelope,
                 pan=pan,
+                instrument=sound.instrument,
                 inverted=invert,
                 steps=curve_to_steps(y, opts, bounds=shared, invert=invert),
             )

@@ -26,6 +26,7 @@ from mathmusic.composer import PITCH_MODES, Options, build_voices
 from mathmusic.expr import Expression, ExpressionError
 from mathmusic.scales import SCALES, parse_note
 from mathmusic.synth import SAMPLE_RATE, encode_mp3, mix, write_wav
+from mathmusic.waves import describe_all, resolve
 
 WEB_DIR = Path(__file__).parent / "web"
 MAX_SAMPLES = 2000
@@ -120,7 +121,8 @@ def render_project(payload: dict) -> dict:
             continue
         try:
             Expression(source)
-        except ExpressionError as exc:
+            resolve(item.get("waveform"), index)  # validates the sound before the whole render fails
+        except ValueError as exc:  # ExpressionError is a ValueError
             errors.append({"index": index, "error": str(exc)})
             continue
         active.append((index, source, item.get("waveform"), bool(item.get("invert", False))))
@@ -144,6 +146,7 @@ def render_project(payload: dict) -> dict:
                 "index": index,
                 "expression": voice.expression.source,
                 "waveform": voice.waveform,
+                "instrument": voice.instrument,
                 "inverted": voice.inverted,
                 "pan": voice.pan,
                 "samples": [
@@ -241,6 +244,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._file(WEB_DIR / path.removeprefix("/static/"))
         if path == "/api/status":
             return self._json(200, status())
+        if path == "/api/instruments":
+            return self._json(200, describe_all())
         if path.startswith("/audio/"):
             return self._audio(path.removeprefix("/audio/"))
         self.send_error(404)

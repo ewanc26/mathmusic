@@ -42,6 +42,22 @@ uv venv .venv && uv pip install --python .venv/bin/python -e ".[plot,publish]"
 
 Expressions accept `+ - * / ^ %`, `x`, `pi`, `tau`, `e`, and functions such as `sin cos tan exp log sqrt abs floor sinc mod min max clip`. Anything else is rejected before evaluation.
 
+## Sounds: waveforms, instruments and formulas
+
+Every sound is a mathematical formula, so you can read it and change it.
+
+- A **waveform** is one period of a wave, written in `x`, where `x` is the phase in cycles (0 to 1). `sin(2*pi*x)` is a sine. Built in: `sine`, `triangle`, `saw`, `square`, `pulse` (25% duty).
+- An **instrument** pairs a waveform with an **envelope**, a formula in `x` where `x` is the position in the note (0 at the start, 1 at the end). Built in: `organ`, `clarinet`, `brass`, `pluck`, `bell`, `fm`, `hollow`, `reed`.
+- A **custom formula** is any periodic expression in `x`, up to 300 characters, e.g. `sin(2*pi*x) + 0.3*sin(6*pi*x)`. The formula is sampled once per cycle, so it must be defined everywhere in one period.
+
+```bash
+mathmusic instruments                      # list every waveform and instrument with its formulas
+mathmusic "sin(x)" "x^2/8" --wave bell -o out/bells.mp3
+mathmusic "sin(x)" --wave "sin(2*pi*x) + 0.5*sin(4*pi*x)" -o out/custom.mp3
+```
+
+In the UI, each expression has a sound menu. Choose **custom formula…** to type your own waveform.
+
 ## Publishing to plyr.fm
 
 `--publish` uploads the rendered MP3 to [plyr.fm](https://plyr.fm), which is music on AT Protocol. Create a developer token at plyr.fm/settings#developer and export it. Your account needs an artist profile on plyr.fm.

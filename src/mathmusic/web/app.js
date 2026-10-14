@@ -4,7 +4,8 @@
 // neon orbit colours: cyan, purple, yellow, coral, green, pink
 const PALETTE = ["#25f4ee", "#a855f7", "#facc15", "#fe2c55", "#34d399", "#f472b6"];
 const SCALE_NAMES = ["pentatonic", "major", "minor", "dorian", "minor_pentatonic", "whole_tone", "chromatic"];
-const WAVES = ["sine", "triangle", "saw", "square"];
+// filled from /api/instruments at boot: { waveforms: [{name, formula}], instruments: [{name, description, wave, envelope}] }
+let catalogue = { waveforms: [], instruments: [] };
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const STORAGE_KEY = "mathmusic.v1";
 
@@ -37,7 +38,8 @@ const graphCanvas = $("#graph");
 const rollCanvas = $("#roll");
 
 let nextId = 1;
-const newExpr = (src = "", waveform = null) => ({ id: nextId++, src, waveform, enabled: true, invert: false });
+// waveform: null (auto), a waveform or instrument name, or a formula in x when custom is true
+const newExpr = (src = "", waveform = null) => ({ id: nextId++, src, waveform, custom: false, enabled: true, invert: false });
 
 let state = loadState() ?? { exprs: PRESETS[0].exprs.map((s) => newExpr(s)), opts: { pitch_mode: "shared", ...PRESETS[0].opts } };
 let render = null; // last successful render from the server
@@ -58,7 +60,7 @@ function loadState() {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (!saved || !Array.isArray(saved.exprs) || !saved.opts) return null;
     return {
-      exprs: saved.exprs.map((e) => ({ ...newExpr(String(e.src ?? ""), e.waveform ?? null), enabled: e.enabled !== false, invert: e.invert === true })),
+      exprs: saved.exprs.map((e) => ({ ...newExpr(String(e.src ?? ""), e.waveform ?? null), custom: e.custom === true, enabled: e.enabled !== false, invert: e.invert === true })),
       opts: { pitch_mode: "shared", ...saved.opts },
     };
   } catch {
@@ -172,16 +174,49 @@ function exprRow(expr, index) {
   invertLabel.append(invertCheck, " invert");
 
   const wave = document.createElement("select");
-  wave.setAttribute("aria-label", `Waveform for expression ${index + 1}`);
-  for (const name of ["auto", ...WAVES]) {
-    const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name === "auto" ? "waveform: auto" : name;
-    wave.append(option);
+  wave.setAttribute("aria-label", `Sound for expression ${index + 1}`);
+  wave.append(new Option("sound: auto", "auto"));
+  const basics = document.createElement("optgroup");
+  basics.label = "Waveforms";
+  for (const w of catalogue.waveforms) basics.append(new Option(w.name, w.name));
+  const instruments = document.createElement("optgroup");
+  instruments.label = "Instruments";
+  for (const inst of catalogue.instruments) {
+    const option = new Option(inst.name, inst.name);
+    option.title = inst.description;
+    instruments.append(option);
   }
-  wave.value = expr.waveform ?? "auto";
+  wave.append(basics, instruments, new Option("custom formula…", "__custom__"));
+  wave.value = expr.custom ? "__custom__" : (expr.waveform ?? "auto");
+
+  // one period of the waveform, in x (x = phase in cycles)
+  const formula = document.createElement("input");
+  formula.type = "text";
+  formula.className = "wave-formula";
+  formula.placeholder = "one cycle in x, e.g. sin(2*pi*x) + 0.3*sin(6*pi*x)";
+  formula.spellcheck = false;
+  formula.autocomplete = "off";
+  formula.setAttribute("aria-label", `Waveform formula for expression ${index + 1}`);
+  formula.value = expr.custom ? expr.waveform ?? "" : "";
+  formula.hidden = !expr.custom;
+  formula.addEventListener("input", () => {
+    if (!expr.custom) return; // a hidden field must not overwrite a named sound
+    expr.waveform = formula.value;
+    scheduleRender();
+  });
+
   wave.addEventListener("change", () => {
-    expr.waveform = wave.value === "auto" ? null : wave.value;
+    if (wave.value === "__custom__") {
+      expr.custom = true;
+      expr.waveform = formula.value || "sin(2*pi*x)";
+      formula.value = expr.waveform;
+      formula.hidden = false;
+      formula.focus();
+    } else {
+      expr.custom = false;
+      expr.waveform = wave.value === "auto" ? null : wave.value;
+      formula.hidden = true;
+    }
     scheduleRender(0);
   });
 
@@ -192,7 +227,7 @@ function exprRow(expr, index) {
   const error = document.createElement("div");
   error.className = "expr-error";
 
-  li.append(row, meta, error);
+  li.append(row, meta, formula, error);
   li.classList.toggle("off", !expr.enabled);
   return li;
 }
@@ -829,11 +864,21 @@ async function loadStatus() {
   updatePublishState();
 }
 
+async function loadCatalogue() {
+  try {
+    catalogue = await (await fetch("/api/instruments")).json();
+    renderExprs();
+  } catch {
+    /* the selector still offers auto; instruments simply will not be listed */
+  }
+}
+
 // ---------- boot ----------
 
 renderPresets();
 syncOptionInputs();
 renderExprs();
+loadCatalogue();
 loadStatus();
 scheduleRender(0);
 updatePlayButton();

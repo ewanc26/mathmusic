@@ -37,6 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="shared",
         help="shared: all voices use one pitch range (keeps relative height); per-voice: each curve fills the range",
     )
+    parser.add_argument(
+        "--wave",
+        help="sound for every voice: a waveform (sine, triangle, saw, square, pulse), an instrument "
+        "(see `mathmusic instruments`), or a formula in x, e.g. \"sin(2*pi*x) + 0.3*sin(6*pi*x)\"",
+    )
     parser.add_argument("--bpm", type=float, default=120.0)
     parser.add_argument("--step", type=float, default=0.5, help="beats per sample (default 0.5)")
     parser.add_argument(
@@ -55,6 +60,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def instruments_main() -> int:
+    from mathmusic.waves import describe_all
+
+    catalogue = describe_all()
+    print("Waveforms (one period, x = phase in cycles):")
+    for wave in catalogue["waveforms"]:
+        print(f"  {wave['name']:<10} {wave['formula']}")
+    print("\nInstruments (waveform + envelope over the note, x = position in the note):")
+    for inst in catalogue["instruments"]:
+        print(f"  {inst['name']:<10} {inst['description']}")
+        print(f"             wave:     {inst['wave']}")
+        print(f"             envelope: {inst['envelope']}")
+    return 0
+
+
 def serve_main(argv: list[str]) -> int:
     from mathmusic.server import serve
 
@@ -70,6 +90,8 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["serve"]:
         return serve_main(argv[1:])
+    if argv[:1] == ["instruments"]:
+        return instruments_main()
 
     args = build_parser().parse_args(argv)
     opts = Options(
@@ -86,7 +108,8 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     try:
-        voices = build_voices(args.expressions, opts)
+        waveforms = [args.wave] * len(args.expressions) if args.wave else None
+        voices = build_voices(args.expressions, opts, waveforms=waveforms)
     except (ExpressionError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

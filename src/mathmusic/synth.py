@@ -10,23 +10,11 @@ from pathlib import Path
 import numpy as np
 
 from mathmusic.composer import Voice
+from mathmusic.waves import TABLE_SIZE, envelope_values, wavetable
 
 SAMPLE_RATE = 44100
 PEAK = 0.89  # about -1 dBFS, leaves headroom for the MP3 encoder
-
-
-def _oscillator(kind: str, phase: np.ndarray) -> np.ndarray:
-    """Waveform at the given phase, measured in cycles."""
-    frac = phase % 1.0
-    if kind == "sine":
-        return np.sin(2 * np.pi * phase)
-    if kind == "triangle":
-        return 4 * np.abs(frac - 0.5) - 1
-    if kind == "saw":
-        return 2 * frac - 1
-    if kind == "square":
-        return np.where(frac < 0.5, 1.0, -1.0)
-    raise ValueError(f"unknown waveform {kind!r}")
+_GRID = np.linspace(0.0, 1.0, TABLE_SIZE + 1)
 
 
 def _midi_to_hz(pitch: int) -> float:
@@ -37,6 +25,7 @@ def render_voice(voice: Voice, seconds_per_beat: float, sample_rate: int) -> np.
     """Mono buffer for one voice."""
     if not voice.notes:
         return np.zeros(0, dtype=np.float32)
+    table = wavetable(voice.wave_formula)
     last = max(note.start + note.duration for note in voice.notes)
     buffer = np.zeros(int(np.ceil(last * seconds_per_beat * sample_rate)) + sample_rate // 4)
 
@@ -44,13 +33,16 @@ def render_voice(voice: Voice, seconds_per_beat: float, sample_rate: int) -> np.
         duration = note.duration * seconds_per_beat
         n = max(1, int(duration * sample_rate))
         t = np.arange(n) / sample_rate
-        wave = _oscillator(voice.waveform, _midi_to_hz(note.pitch) * t)
+        # read one period of the wavetable at this pitch; the phase wraps at 1
+        phase = (_midi_to_hz(note.pitch) * t) % 1.0
+        wave = np.interp(phase, _GRID, table)
+        shape = envelope_values(voice.envelope_formula, t / duration)
         # short attack and release so neighbouring notes do not click
         attack = min(0.01, duration / 4)
         release = min(0.05, duration / 2)
-        envelope = np.minimum(t / attack, 1.0) * np.minimum((duration - t) / release, 1.0)
+        guard = np.minimum(t / attack, 1.0) * np.minimum((duration - t) / release, 1.0)
         start = int(round(note.start * seconds_per_beat * sample_rate))
-        buffer[start : start + n] += 0.3 * envelope * wave
+        buffer[start : start + n] += 0.3 * guard * shape * wave
 
     return buffer.astype(np.float32)
 
