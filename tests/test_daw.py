@@ -1,7 +1,6 @@
 """Tests for the DAW layer: project model, effects, engine, storage and API."""
 
 import json
-import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -1092,7 +1091,7 @@ def test_api_type_errors_are_400(api):
 
 
 def test_mp3_failure_is_reported_as_json(api, monkeypatch):
-    import mathmusic.server as server
+    from mathmusic import server
 
     def boom(*args, **kwargs):
         raise RuntimeError("ffmpeg is needed for MP3 output")

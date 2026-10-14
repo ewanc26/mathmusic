@@ -5,7 +5,6 @@ import io
 import sys
 import types
 import wave
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -273,9 +272,10 @@ def test_serve_command_takes_a_port(monkeypatch):
 
 
 def test_midi_velocity_follows_the_clip_gain():
+    from test_daw import read_midi
+
     from mathmusic.midi import project_to_midi
     from mathmusic.project import parse_project
-    from test_daw import read_midi
 
     def velocity_for(gain):
         data = _song()
@@ -330,7 +330,7 @@ def test_api_range_past_the_end_is_416(api):
 
 
 def test_api_unexpected_failure_is_a_500_with_a_message(api, monkeypatch):
-    import mathmusic.server as server
+    from mathmusic import server
 
     def boom(payload):
         raise TypeError("engine exploded")
@@ -352,8 +352,7 @@ def test_api_publish_needs_a_title(api):
 
 
 def test_api_publish_passes_the_metadata_through(api, monkeypatch):
-    import mathmusic.publish as publish
-    import mathmusic.server as server
+    from mathmusic import publish, server
 
     monkeypatch.setattr(server, "encode_mp3", lambda wav, mp3: mp3.write_bytes(b"ID3fake"))
     captured: dict = {}
