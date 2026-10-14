@@ -241,10 +241,22 @@ def publish_project(payload: dict) -> dict:
     return {"track_id": track_id}
 
 
+_MP3_LOCK = threading.Lock()
+
+
 def _ensure_mp3(render_id: str, wav: Path) -> Path:
+    """The MP3 for a render, encoded once. Requests that arrive together wait for the one encode,
+    and the file only appears under its final name once ffmpeg has finished, so nobody is served
+    a partly written or failed encode."""
     mp3 = wav.with_suffix(".mp3")
-    if not mp3.exists():
-        encode_mp3(wav, mp3)
+    with _MP3_LOCK:
+        if not mp3.exists():
+            partial = wav.with_name(f"{wav.stem}.part.mp3")
+            try:
+                encode_mp3(wav, partial)
+                partial.replace(mp3)
+            finally:
+                partial.unlink(missing_ok=True)
     return mp3
 
 

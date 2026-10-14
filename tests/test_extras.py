@@ -35,6 +35,35 @@ def _fake_plyrfm(monkeypatch, record: dict) -> None:
     monkeypatch.setitem(sys.modules, "plyrfm", module)
 
 
+def test_concurrent_mp3_requests_encode_once_and_never_see_a_partial_file(tmp_path, monkeypatch):
+    import threading
+    import time
+
+    from mathmusic import server
+
+    wav = tmp_path / "render.wav"
+    wav.write_bytes(b"RIFF fake wav")
+    calls = []
+
+    def slow_encode(src, dst):
+        calls.append(dst)
+        dst.write_bytes(b"partial")  # ffmpeg writes incrementally; readers must not see this name
+        time.sleep(0.2)
+        dst.write_bytes(b"complete mp3")
+        return dst
+
+    monkeypatch.setattr(server, "encode_mp3", slow_encode)
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(server._ensure_mp3("id", wav).read_bytes())) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(calls) == 1  # one encode for all the requests that arrived together
+    assert results == [b"complete mp3"] * 6
+    assert not any(tmp_path.glob("*.part.mp3"))
+
+
 def test_publish_uploads_with_the_token(tmp_path, monkeypatch):
     record: dict = {}
     _fake_plyrfm(monkeypatch, record)
