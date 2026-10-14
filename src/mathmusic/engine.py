@@ -416,3 +416,31 @@ def resolve_name(spec: str | None, index: int) -> str:
         return resolve(spec, index).name
     except ValueError:
         return spec or ""
+
+
+def render_stems(project: Project, sample_rate: int = SAMPLE_RATE) -> dict[str, np.ndarray]:
+    """One stereo array per clip track (buses are not stems): each track's own output,
+    after its fader, effects, sends and pan, with the master chain left out.
+
+    Muted tracks give silence. Solo applies as in the full mix, so soloed tracks are the
+    only ones in the stems.
+    """
+    spb = 60.0 / project.bpm
+    length = project.length_beats
+    total = int(np.ceil((length * spb + TAIL_SECONDS) * sample_rate)) if length > 0 else 0
+    any_solo = any(track.solo for track in project.tracks)
+    stems: dict[str, np.ndarray] = {}
+    for index, track in enumerate(project.tracks):
+        if track.bus:
+            continue
+        audible = not track.mute and (track.solo or not any_solo)
+        if not audible or not total:
+            stems[track.id] = np.zeros((total, 2), dtype=np.float32)
+            continue
+        key = _track_key(track, index, project, total, audible, sample_rate)
+        result = _CACHE.get(key)
+        if result is None:
+            result = _render_track(track, index, project, total, audible, sample_rate)
+            _CACHE.put(key, result)
+        stems[track.id] = (result.stereo if result.stereo is not None else np.zeros((total, 2))).astype(np.float32)
+    return stems

@@ -894,3 +894,39 @@ def test_track_rows_keep_project_order_with_buses_in_between():
     result = engine.render(parse_project(data), sample_rate=SR)
     assert [t["id"] for t in result.tracks] == ["t1", "b1", "t2"]
     assert result.tracks[1].get("bus") is True
+
+
+def test_stems_are_one_wav_per_clip_track_and_skip_buses(tmp_path):
+    import wave
+
+    from mathmusic.cli import main
+
+    data = small_project(tracks=[
+        {"id": "t1", "name": "Lead line", "sound": "sine", "sends": [{"bus": "b1", "level": 0.5}],
+         "clips": [{"id": "c1", "expression": "x", "notes": 4, "length": 4, "octaves": 1}]},
+        {"id": "b1", "name": "Return", "bus": True, "clips": []},
+        {"id": "t2", "name": "Bass", "sound": "square", "mute": True,
+         "clips": [{"id": "c2", "expression": "x", "notes": 4, "length": 4, "octaves": 1}]},
+        {"id": "t3", "name": "Pad", "sound": "organ",
+         "clips": [{"id": "c3", "expression": "sin(x)", "notes": 4, "length": 4, "octaves": 1}]},
+    ])
+    path = tmp_path / "song.json"
+    path.write_text(json.dumps(data))
+    assert main(["render", str(path), "--stems", str(tmp_path / "stems")]) == 0
+    names = sorted(p.name for p in (tmp_path / "stems").iterdir())
+    assert names == ["Lead-line.wav", "Pad.wav"]  # the muted bass and the bus are not stems
+    with wave.open(str(tmp_path / "stems" / "Pad.wav")) as w:
+        assert w.getnchannels() == 2 and w.getframerate() == 44100
+
+
+def test_stems_match_the_mix_when_there_is_one_track():
+    data = small_project()
+    project = parse_project(data)
+    stems = engine.render_stems(project, sample_rate=SR)
+    mix = engine.render(project, sample_rate=SR)
+    # the mix adds normalisation and master effects; with neither, one track's stem equals the mix
+    data["master"] = {"normalize": False}
+    project = parse_project(data)
+    stems = engine.render_stems(project, sample_rate=SR)
+    mix = engine.render(project, sample_rate=SR)
+    assert np.abs(stems["t1"] - mix.stereo).max() < 1e-5
