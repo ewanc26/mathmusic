@@ -34,7 +34,10 @@ def peaks(stereo: np.ndarray | None, samples_per_bucket: int, scale: float = 1.0
     if stereo is None or not len(stereo):
         return []
     step = max(1, samples_per_bucket)
-    level = np.abs(stereo).max(axis=1) * scale
+    level = np.abs(stereo[:, 0])  # per channel, so no (samples, channels) temporary is made
+    for channel in range(1, stereo.shape[1]):
+        np.maximum(level, np.abs(stereo[:, channel]), out=level)
+    level = level * scale
     level = np.where(np.isfinite(level), level, 0.0)  # never send NaN/Inf to the UI
     count = int(np.ceil(len(level) / step))
     level = np.pad(level, (0, count * step - len(level)))
