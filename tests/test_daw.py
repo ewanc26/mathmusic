@@ -683,3 +683,23 @@ def test_api_upload_audio(api):
     assert status == 415
     status, _ = api_upload(api, wav_bytes(), "tone.wav", origin="https://evil.example")
     assert status == 403
+
+
+@pytest.mark.skipif(__import__("shutil").which("ffmpeg") is None, reason="needs ffmpeg")
+def test_import_decodes_browser_recordings(tmp_path, monkeypatch):
+    """Microphone takes arrive as WebM/Opus from MediaRecorder; ffmpeg decodes them."""
+    import subprocess
+
+    from mathmusic import assets
+
+    monkeypatch.setenv("MATHMUSIC_HOME", str(tmp_path))
+    source = tmp_path / "tone.wav"
+    source.write_bytes(wav_bytes(seconds=1.0, rate=48000, freq=440.0))
+    take = tmp_path / "take.webm"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(source), "-c:a", "libopus", str(take)], check=True
+    )
+    asset = assets.import_audio(take.read_bytes(), "take.webm")
+    assert asset["seconds"] == pytest.approx(1.0, abs=0.05)
+    audio = assets.load_asset(asset["id"])
+    assert dominant_frequency(audio[4410:30000, 0], 44100) == pytest.approx(440.0, rel=0.01)

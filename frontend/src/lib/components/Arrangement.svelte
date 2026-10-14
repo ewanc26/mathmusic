@@ -5,10 +5,11 @@
   resized and created; audio files can be imported or dropped onto a lane.
 -->
 <script lang="ts">
-  import { FileAudio, Maximize2, Minus, Plus } from "@lucide/svelte";
+  import { Circle, FileAudio, Maximize2, Minus, Plus, Square } from "@lucide/svelte";
   import { SvelteMap } from "svelte/reactivity";
   import { addTrack, importAudio } from "$lib/actions.svelte";
   import { plot } from "$lib/api";
+  import { recorder } from "$lib/recorder.svelte";
   import { daw, newClip, newTrack } from "$lib/daw.svelte";
   import { transport } from "$lib/transport.svelte";
   import type { Clip, PlotData, Track } from "$lib/types";
@@ -462,7 +463,7 @@
 
 <section class="grid min-h-0 grid-rows-[auto_1fr_auto] border-b border-line" aria-label="Arrangement">
   <div class="grid grid-cols-[240px_1fr] border-b border-line max-[900px]:grid-cols-[170px_1fr]">
-    <div class="flex items-center gap-1.5 border-r border-line px-2 py-1">
+    <div class="flex flex-wrap items-center gap-1.5 border-r border-line px-2 py-1">
       <button class="btn sm" type="button" title="Add track (T)" onclick={addTrack}>+ Track</button>
       <button
         class="btn sm"
@@ -471,6 +472,21 @@
         onclick={() => fileInput?.click()}
       >
         <FileAudio size={13} /> Audio
+      </button>
+      <button
+        class="btn sm"
+        class:!border-accent={recorder.recording}
+        class:text-accent={recorder.recording}
+        type="button"
+        title="Record from the microphone while the project plays (R)"
+        aria-pressed={recorder.recording}
+        onclick={recorder.toggle}
+      >
+        {#if recorder.recording}<Square size={11} fill="currentColor" /> Stop{:else}<Circle
+            size={11}
+            fill="currentColor"
+            class="text-accent"
+          /> Rec{/if}
       </button>
       <input
         bind:this={fileInput}

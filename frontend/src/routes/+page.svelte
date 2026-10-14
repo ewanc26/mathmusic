@@ -12,6 +12,7 @@
     toggleLoop,
   } from "$lib/actions.svelte";
   import { api } from "$lib/api";
+  import { recorder } from "$lib/recorder.svelte";
   import Arrangement from "$lib/components/Arrangement.svelte";
   import HelpDialog from "$lib/components/HelpDialog.svelte";
   import OpenDialog from "$lib/components/OpenDialog.svelte";
@@ -78,6 +79,8 @@
       transport.toStart();
     } else if (key === "l") {
       toggleLoop();
+    } else if (key === "r") {
+      recorder.toggle();
     } else if (key === "k") {
       transport.metronome.toggle();
     } else if (key === "m" || key === "s") {

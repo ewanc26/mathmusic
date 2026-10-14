@@ -13,6 +13,7 @@
     ["Home or Enter", "Back to start (or loop start)"],
     ["L", "Loop on / off. Drag on the ruler to set the loop."],
     ["K", "Metronome on / off (not part of the render or exports)"],
+    ["R", "Record from the microphone while the project plays; the take lands as an audio clip"],
     ["⌘Z, ⇧⌘Z", "Undo, redo"],
     ["⌘S", "Save"],
     ["⌘C, ⌘V, ⌘D", "Copy, paste, duplicate the selected clip"],
