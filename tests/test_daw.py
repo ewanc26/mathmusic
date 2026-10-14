@@ -1236,3 +1236,31 @@ def test_sketch_reports_a_bad_expression_without_writing_a_file(tmp_path, capsys
     assert main(["__import__('os')", "-o", str(tmp_path / "x.wav")]) == 2
     assert "error:" in capsys.readouterr().err
     assert not (tmp_path / "x.wav").exists()
+
+
+def test_bad_pan_automation_is_reported_on_tracks_and_buses():
+    data = small_project()
+    data["tracks"][0]["automation"] = {"pan": "log(x - 100)"}  # undefined over the whole song
+    data["tracks"][0]["sends"] = [{"bus": "b1", "level": 0.5}]
+    # a bus is only evaluated when something is sent to it, so the track sends to it
+    data["tracks"].append({"id": "b1", "sound": "sine", "bus": True, "clips": [],
+                           "automation": {"pan": "log(x - 100)"}})
+    result = engine.render(parse_project(data), sample_rate=SR)
+    fields = {(e["track"], e["field"]) for e in result.errors}
+    assert ("t1", "automation.pan") in fields and ("b1", "automation.pan") in fields
+    assert np.abs(result.stereo).max() > 0  # the track still plays without its pan automation
+
+
+def test_bad_sound_silences_curve_clips_but_audio_clips_still_play(tmp_path, monkeypatch):
+    from mathmusic import assets
+
+    monkeypatch.setenv("MATHMUSIC_HOME", str(tmp_path))
+    asset = assets.import_audio(wav_bytes(seconds=1.0), "tone.wav")["id"]
+    data = small_project()
+    data["tracks"][0]["sound"] = "__import__('os')"  # rejected sound: curve clips go silent
+    data["tracks"][0]["clips"].append(
+        {"id": "a1", "kind": "audio", "asset": asset, "start": 0, "length": 4}
+    )
+    result = engine.render(parse_project(data), sample_rate=SR)
+    assert any(e["field"] == "sound" for e in result.errors)
+    assert np.abs(result.stereo).max() > 0
