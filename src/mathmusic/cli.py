@@ -85,6 +85,9 @@ def render_main(argv: list[str]) -> int:
         help="write one WAV per clip track into DIR instead of a mix (track output before the master chain)",
     )
     args = parser.parse_args(argv)
+    if args.output is not None and args.output.suffix.lower() not in (".mp3", ".wav", ".mid", ".midi"):
+        print(f"error: {args.output} must end in .mp3, .wav or .mid", file=sys.stderr)
+        return 2
 
     try:
         project = parse_project(json.loads(args.project.read_text(encoding="utf-8")))

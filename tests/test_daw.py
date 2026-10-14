@@ -461,6 +461,18 @@ def test_midi_export_matches_the_audio_notes():
     assert len(offs) == len(notes_on)
 
 
+def test_render_rejects_an_unknown_output_format_before_rendering(tmp_path, capsys):
+    from mathmusic.cli import main
+
+    data = small_project()
+    src = tmp_path / "song.json"
+    src.write_text(json.dumps(data))
+    for name in ("out.txt", "out_dir/", "song"):
+        assert main(["render", str(src), "-o", str(tmp_path / name)]) == 2
+        assert "must end in .mp3, .wav or .mid" in capsys.readouterr().err
+    assert not any(tmp_path.glob("out*"))
+
+
 def test_stems_with_colliding_names_are_all_kept(tmp_path):
     from mathmusic.cli import main
 
