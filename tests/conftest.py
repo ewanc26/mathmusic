@@ -34,6 +34,7 @@ def api(tmp_path, monkeypatch):
                 return exc.code, raw
 
     call.base = base
+    call.server = server
     yield call
     server.shutdown()
     server.server_close()

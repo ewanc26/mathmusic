@@ -1149,6 +1149,64 @@ def test_api_type_errors_are_400(api):
     assert [problem["index"] for problem in body["errors"]] == [0, 1]
 
 
+def _raw_request(server, request: bytes) -> bytes:
+    """Send a raw HTTP request and return the raw response bytes."""
+    import socket
+
+    sock = socket.create_connection(("127.0.0.1", server.server_address[1]))
+    try:
+        sock.sendall(request)
+        sock.shutdown(socket.SHUT_WR)
+        chunks = []
+        while True:
+            block = sock.recv(65536)
+            if not block:
+                break
+            chunks.append(block)
+        return b"".join(chunks)
+    finally:
+        sock.close()
+
+
+def test_malformed_content_length_is_rejected(api):
+    host = api.base.removeprefix("http://")
+    for value in ("-1", "not-a-number"):
+        request = (
+            f"POST /api/plot HTTP/1.1\r\nHost: {host}\r\n"
+            f"Content-Type: application/json\r\nContent-Length: {value}\r\n\r\n"
+        ).encode()
+        response = _raw_request(api.server, request)
+        status_line = response.split(b"\r\n", 1)[0]
+        assert status_line.split()[1:2] == [b"400"], status_line
+
+
+def test_client_disconnect_is_not_reported_as_a_server_error(api, tmp_path, monkeypatch):
+    import socket
+    import struct
+    import time
+
+    import mathmusic.server as server
+
+    # a response larger than the socket buffer so the write is still in flight
+    # when the client resets the connection
+    web = tmp_path / "web"
+    web.mkdir()
+    (web / "index.html").write_bytes(b"x" * (4 * 1024 * 1024))
+    monkeypatch.setattr(server, "WEB_DIR", web)
+
+    seen = []
+    api.server.handle_error = lambda *args: seen.append(args)
+    host = api.base.removeprefix("http://")
+    sock = socket.create_connection(("127.0.0.1", api.server.server_address[1]))
+    # linger 0 makes close() send a RST, so the server's write fails mid-response
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+    sock.sendall(f"GET / HTTP/1.1\r\nHost: {host}\r\n\r\n".encode())
+    time.sleep(0.1)
+    sock.close()
+    time.sleep(0.3)
+    assert seen == []
+
+
 def test_mp3_failure_is_reported_as_json(api, monkeypatch):
     from mathmusic import server
 
