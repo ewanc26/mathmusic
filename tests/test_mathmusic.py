@@ -88,7 +88,7 @@ def test_evaluation_failures_raise_expression_error(source):
 
 
 @pytest.mark.parametrize("source", ["1/0", "1%0", "1/(x-0.5)"])
-def test_division_by_zero_is_an_undefined_point_not_an_error(source):
+def test_division_by_zero_becomes_a_rest(source):
     # the README: division by zero is undefined and becomes a rest, like log(-1)
     values = Expression(source).evaluate(np.array([0.5, 1.0]))
     assert not np.isfinite(values[0])  # undefined at x = 0.5 for every form above
