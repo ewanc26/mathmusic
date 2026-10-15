@@ -371,6 +371,28 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):  # keep the terminal quiet
         pass
 
+    def handle_one_request(self) -> None:
+        """Serve one request, quietly abandoning a client that has already gone.
+
+        A render can take a while; if the tab is closed or the request is
+        cancelled before the response is written, the write raises. That is not
+        a server fault, so it should not print a traceback to the terminal.
+        """
+        try:
+            super().handle_one_request()
+        except ConnectionError:
+            self.close_connection = True
+
+    def _content_length(self) -> int:
+        """The request's Content-Length as a non-negative int, or -1 when unusable."""
+        header = self.headers.get("Content-Length")
+        if header is None:
+            return 0
+        try:
+            return int(header)
+        except ValueError:
+            return -1
+
     def _request_allowed(self) -> bool:
         """Reject DNS-rebinding and cross-site requests.
 
