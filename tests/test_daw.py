@@ -1196,7 +1196,13 @@ def test_sketch_publish_uploads_an_mp3_even_for_a_wav_output(tmp_path, monkeypat
         uploaded["path"] = path
         return 7
 
+    def fake_encode_mp3(wav_path, mp3_path, **kwargs):
+        # ffmpeg is not guaranteed on CI runners; this test is about which file is uploaded
+        mp3_path.write_bytes(b"ID3")
+        return mp3_path
+
     monkeypatch.setitem(sys.modules, "mathmusic.publish", types.SimpleNamespace(publish_to_plyr=fake_publish))
+    monkeypatch.setattr(cli, "encode_mp3", fake_encode_mp3)
     out = tmp_path / "song.wav"
     assert cli.main(["sin(x)", "--publish", "--samples", "8", "-o", str(out)]) == 0
     assert uploaded["path"].suffix == ".mp3"
