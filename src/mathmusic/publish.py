@@ -32,11 +32,14 @@ def publish_to_plyr(
         )
 
     client = PlyrClient(token=token)
-    result = client.tracks.upload(
-        audio_path,
-        title,
-        album=album,
-        tags=tags,
-        description=description,
-    )
+    try:
+        result = client.tracks.upload(
+            audio_path,
+            title,
+            album=album,
+            tags=tags,
+            description=description,
+        )
+    except Exception as exc:  # network, auth and API errors all reach the user the same way
+        raise RuntimeError(f"the upload to plyr.fm failed: {exc}") from exc
     return result.track_id

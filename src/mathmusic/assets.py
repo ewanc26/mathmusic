@@ -72,6 +72,8 @@ def _read_wav(data: bytes) -> np.ndarray:
         audio = np.repeat(audio, 2, axis=1)
     elif channels > 2:
         audio = audio[:, :2]
+    if rate <= 0:
+        raise AssetError("the WAV file has no sample rate")
     if rate != SAMPLE_RATE:
         audio = resample_poly(audio, SAMPLE_RATE, rate, axis=0).astype(np.float32)
     return audio
@@ -90,6 +92,7 @@ def _decode(data: bytes, filename: str) -> np.ndarray:
             [ffmpeg, "-y", "-loglevel", "error", "-i", str(source), "-ac", "2", "-ar", str(SAMPLE_RATE),
              "-t", str(MAX_SECONDS), "-c:a", "pcm_s16le", str(target)],
             capture_output=True,
+            check=False,  # the return code is checked below, with a readable message
             text=True,
         )
         if result.returncode != 0 or not target.exists():

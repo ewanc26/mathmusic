@@ -15,7 +15,7 @@ from math import cos, pi, sin
 import numpy as np
 from scipy.signal import lfilter
 
-from mathmusic.expr import Expression
+from mathmusic.expr import compile_expression
 
 
 def _shift(x: np.ndarray, delay: int) -> np.ndarray:
@@ -60,7 +60,7 @@ def allpass(x: np.ndarray, delay: int, gain: float) -> np.ndarray:
 
 
 def shaper(x: np.ndarray, formula: str, mix: Param) -> np.ndarray:
-    shaped = Expression(formula).evaluate(x)
+    shaped = compile_expression(formula).evaluate(x)
     shaped = np.nan_to_num(shaped, nan=0.0, posinf=0.0, neginf=0.0)
     mix = _per_sample(mix, x)
     return (1 - mix) * x + mix * shaped
@@ -149,7 +149,7 @@ def eq(x: np.ndarray, freq: Param, gain_db: Param, q: Param, sample_rate: int) -
     for start in range(0, len(x), FILTER_BLOCK):
         end = min(start + FILTER_BLOCK, len(x))
         mid = (start + end) // 2
-        pick = lambda v: v[mid] if isinstance(v, np.ndarray) else v  # noqa: E731
+        pick = lambda v, mid=mid: v[mid] if isinstance(v, np.ndarray) else v  # bind this block's midpoint
         b, a = _peaking_coefficients(float(pick(freq)), float(pick(gain_db)), float(pick(q)), sample_rate)
         out[start:end], state = lfilter(b, a, x[start:end], axis=0, zi=state)
     return out

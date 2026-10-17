@@ -37,10 +37,61 @@ def test_rejects_unsafe_or_unknown_input(source):
         Expression(source)
 
 
+def test_compiled_expressions_are_shared_but_failures_are_not_cached():
+    from mathmusic.expr import compile_expression
+
+    first = compile_expression("sin(x) + 1")
+    assert compile_expression("sin(x) + 1") is first  # rendering loops reuse the parse
+    assert np.allclose(first.evaluate(np.array([0.0])), [1.0])
+    for _ in range(2):  # a formula that cannot run raises every time, never a stale result
+        with pytest.raises(ExpressionError):
+            compile_expression("max(x)")
+
+
 def test_undefined_points_are_nan_or_inf_not_errors():
     values = Expression("log(x)").evaluate(np.array([-1.0, 0.0, 1.0]))
     assert not np.isfinite(values[0]) and not np.isfinite(values[1])
     assert values[2] == pytest.approx(0.0)
+
+
+def test_division_by_zero_is_an_undefined_point_not_an_error():
+    values = Expression("1/(x-1)").evaluate(np.array([0.0, 1.0, 2.0]))
+    assert values[0] == pytest.approx(-1.0)
+    assert np.isinf(values[1])
+    assert Expression("1/0").evaluate(0.0) == np.inf
+
+
+@pytest.mark.parametrize("source", ["max(x)", "sin(x, 1)", "clip(x, 1)", "mod(x)", "sin(x=1)"])
+def test_wrong_argument_count_is_rejected_before_evaluation(source):
+    with pytest.raises(ExpressionError, match="argument"):
+        Expression(source)
+
+
+def test_two_argument_functions_evaluate():
+    assert Expression("clip(x, 0, 0.5)").evaluate(np.array([-1.0, 0.25, 2.0])).tolist() == [0.0, 0.25, 0.5]
+    assert Expression("max(x, 0.5)").evaluate(np.array([0.0, 1.0])).tolist() == [0.5, 1.0]
+@pytest.mark.parametrize(
+    "source",
+    [
+        "min(x)",  # whitelisted function called with too few arguments
+        "max(x)",
+        "mod(x)",
+        "sin()",
+        "sin(x, 1)",
+    ],
+)
+def test_evaluation_failures_raise_expression_error(source):
+    # a formula that parses but cannot run must raise ExpressionError, not a
+    # TypeError that would escape the engine's error handling
+    with pytest.raises(ExpressionError):
+        Expression(source).evaluate(np.array([0.0, 0.5, 1.0]))
+
+
+@pytest.mark.parametrize("source", ["1/0", "1%0", "1/(x-0.5)"])
+def test_division_by_zero_is_an_undefined_point_not_an_error(source):
+    # the README: division by zero is undefined and becomes a rest, like log(-1)
+    values = Expression(source).evaluate(np.array([0.5, 1.0]))
+    assert not np.isfinite(values[0])  # undefined at x = 0.5 for every form above
 
 
 def test_pitch_table_covers_octaves_and_ends_on_tonic():
@@ -135,6 +186,25 @@ def test_render_project_returns_graph_data_and_audio(tmp_path):
     assert result["duration"] > 0
 
 
+def test_render_project_reports_a_formula_that_cannot_run(tmp_path):
+    from mathmusic.server import render_project
+
+    # min(x) parses but calls minimum() with too few arguments: report it against
+    # its index (and still render the other expression), never raise
+    payload = {
+        "expressions": [
+            {"src": "min(x)", "enabled": True},
+            {"src": "sin(x)", "enabled": True},
+        ],
+        "options": {"start": 0, "end": 6, "samples": 20, "octaves": 1},
+    }
+    result = render_project(payload)
+    assert len(result["errors"]) == 1
+    assert result["errors"][0]["index"] == 0
+    assert "min" in result["errors"][0]["error"]
+    assert [v["index"] for v in result["voices"]] == [1]
+
+
 def test_render_project_rejects_bad_options():
     from mathmusic.server import render_project
 
@@ -142,6 +212,14 @@ def test_render_project_rejects_bad_options():
         render_project({"expressions": [{"src": "x"}], "options": {"start": 3, "end": 1}})
     with pytest.raises(ValueError):
         render_project({"expressions": [{"src": "x"}], "options": {"scale": "nope"}})
+
+
+@pytest.mark.parametrize("options", [{"end": "nan"}, {"start": "-inf"}, {"end": "inf"}, {"end": "abc"}])
+def test_render_project_rejects_non_finite_range(options):
+    from mathmusic.server import render_project
+
+    with pytest.raises(ValueError):
+        render_project({"expressions": [{"src": "x"}], "options": options})
 
 
 def test_slope_rhythm_survives_undefined_samples():
@@ -361,6 +439,36 @@ def test_server_reports_bad_sound_per_expression(http_server):
     assert result["errors"][0]["index"] == 1
 
 
+@pytest.mark.parametrize("length", ["abc", "-1"])
+def test_malformed_content_length_is_a_400_not_a_crash(http_server, length):
+    base, _ = http_server
+    status, body = _request(
+        f"{base}/api/project/render",
+        method="POST",
+        headers={"Content-Type": "application/json", "Content-Length": length},
+    )
+    assert status == 400
+    assert "Content-Length" in json.loads(body)["error"]
+def test_plot_rejects_infinite_point_count():
+    from mathmusic.server import plot_formula
+
+    with pytest.raises(ValueError, match="must be numbers"):
+        plot_formula({"formula": "x", "points": float("inf")})
+@pytest.mark.parametrize("expressions", [-1, 2.5, "sin(x)", {"src": "x"}])
+def test_render_project_rejects_non_list_expressions(expressions):
+    from mathmusic.server import render_project
+
+    with pytest.raises(ValueError, match="must be a list"):
+        render_project({"expressions": expressions})
+@pytest.mark.parametrize("kind", [["lowpass"], {"type": "delay"}, 3, None])
+def test_effect_type_must_be_a_known_name(kind):
+    from mathmusic.project import ProjectError, parse_project
+
+    data = {"tracks": [{"id": "t1", "sound": "sine", "effects": [{"type": kind}], "clips": []}]}
+    with pytest.raises(ProjectError, match="type must be one of"):
+        parse_project(data)
+
+
 def test_instrument_catalogue_endpoint(http_server):
     base, _ = http_server
     status, body = _request(f"{base}/api/instruments")
@@ -377,3 +485,45 @@ def test_clarinet_has_only_odd_harmonics():
     assert spectrum[1] > 0.5  # fundamental
     assert spectrum[2] < 1e-6 and spectrum[4] < 1e-6  # even harmonics absent
     assert spectrum[3] > 0.1  # third harmonic present
+
+
+def _project_with(**changes):
+    """A minimal valid project, with the given top-level changes applied."""
+    data = {"tracks": [{"id": "t1", "sound": "sine", "clips": [
+        {"id": "c1", "start": 0, "length": 4, "notes": 4, "expression": "x"}]}]}
+    data.update(changes)
+    return data
+
+
+@pytest.mark.parametrize("changes, message", [
+    ({"tracks": [{"id": "t1", "volume_db": "loud", "clips": []}]}, "must be a number"),
+    ({"beats_per_bar": 2.5}, "must be a whole number"),
+    ({"tracks": [{"id": "t1", "name": 5, "clips": []}]}, "must be text"),
+    ({"tracks": [{"id": "t1", "name": "a" * 500, "clips": []}]}, "is longer than"),
+    ({"tracks": "not a list"}, "must be a list"),
+    ({"tracks": [{"id": "t1", "effects": ["delay"], "clips": []}]}, "entries must be objects"),
+    ({"tracks": [{"id": "t1", "effects": [{"type": "delay", "params": [1]}], "clips": []}]}, "params must be an object"),
+    ({"tracks": [{"id": "t1", "clips": [{"id": "c1", "start": 0, "length": 4, "notes": 4, "expression": "x", "kind": "video"}]}]}, "kind must be one of"),
+    ({"tracks": [{"id": "t1", "clips": [{"id": "c1", "start": 0, "length": 4, "notes": 4, "expression": "x", "y_min": 1, "y_max": 0}]}]}, "y_max must be greater than y_min"),
+    ({"tracks": [{"id": "t1", "clips": [{"id": "c1", "start": 2000, "length": 100, "notes": 4, "expression": "x"}]}]}, "ends after beat"),
+    ({"tracks": [{"id": "t1", "automation": "x", "clips": []}]}, "automation must be an object"),
+    ({"tracks": [{"id": "t1", "sends": [{"bus": 5}], "clips": []}]}, "must be a track id"),
+    ([], "project must be an object"),
+    ({"master": "loud"}, "master must be an object"),
+    ({"loop_start": 10, "loop_end": 5}, "loop_end must be greater than loop_start"),
+])
+def test_project_validation_names_the_bad_field(changes, message):
+    from mathmusic.project import ProjectError, parse_project
+
+    data = changes if isinstance(changes, list) else _project_with(**changes)
+    with pytest.raises(ProjectError, match=message):
+        parse_project(data)
+
+
+def test_project_limits_are_enforced_for_notes_and_length():
+    from mathmusic.project import LIMITS, ProjectError, parse_project
+
+    clip = {"id": "c1", "start": 0, "length": 4, "notes": LIMITS["notes_per_clip"], "expression": "x"}
+    tracks = [{"id": f"t{i}", "clips": [dict(clip, id=f"c{i}")]} for i in range(9)]  # 9 * 1024 > 8000 notes
+    with pytest.raises(ProjectError, match="the limit is"):
+        parse_project({"tracks": tracks})

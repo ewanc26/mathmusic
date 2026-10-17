@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from mathmusic.expr import Expression, ExpressionError
+from mathmusic.expr import ExpressionError, compile_expression
 
 TABLE_SIZE = 2048
 MAX_FORMULA_LENGTH = 300
@@ -110,7 +110,7 @@ class Resolved:
 def _check_formula(formula: str) -> None:
     if len(formula) > MAX_FORMULA_LENGTH:
         raise ValueError(f"formula is longer than {MAX_FORMULA_LENGTH} characters")
-    Expression(formula)  # raises ExpressionError with a readable message
+    compile_expression(formula)  # raises ExpressionError with a readable message
 
 
 def resolve(spec: str | None, index: int = 0) -> Resolved:
@@ -137,7 +137,7 @@ def wavetable(formula: str) -> np.ndarray:
     The endpoint is included, so linear interpolation wraps cleanly.
     """
     grid = np.linspace(0.0, 1.0, TABLE_SIZE + 1)
-    values = Expression(formula).evaluate(grid)
+    values = compile_expression(formula).evaluate(grid)
     if not np.isfinite(values).all():
         raise ValueError(f"waveform {formula!r} is undefined somewhere in one cycle")
     peak = np.abs(values).max()
@@ -150,7 +150,7 @@ def envelope_values(formula: str | None, position: np.ndarray) -> np.ndarray:
     """Envelope gain at positions in [0, 1] across one note. None means no shaping."""
     if formula is None:
         return np.ones_like(position)
-    values = Expression(formula).evaluate(position)
+    values = compile_expression(formula).evaluate(position)
     if not np.isfinite(values).all():
         raise ExpressionError(f"envelope {formula!r} is undefined somewhere in the note")
     return values

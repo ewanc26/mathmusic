@@ -5,7 +5,7 @@ import { blankProject, daw, newAudioClip, newTrack } from "./daw.svelte";
 import { recorder } from "./recorder.svelte";
 import { toast } from "./toast.svelte";
 import { transport } from "./transport.svelte";
-import type { Clip } from "./types";
+import type { Clip, Track } from "./types";
 import { download, safeFilename, uid } from "./util";
 import { view } from "./view.svelte";
 
@@ -31,7 +31,11 @@ export function deleteClip(): void {
 export function duplicateClip(): void {
   const found = daw.clip(daw.selection.clip);
   if (!found) return;
-  const copy: Clip = { ...$state.snapshot(found.clip), id: uid("c"), start: found.clip.start + found.clip.length };
+  const copy: Clip = {
+    ...$state.snapshot(found.clip),
+    id: uid("c"),
+    start: firstFreeBeat(found.track, found.clip.start + found.clip.length, found.clip.length),
+  };
   daw.edit(() => found.track.clips.push(copy));
   daw.select(found.track.id, copy.id);
 }
@@ -49,7 +53,8 @@ export function pasteClip(): void {
   const track = daw.selectedTrack ?? daw.project.tracks[0];
   if (!clipboard || !track) return;
   const selected = daw.selectedClip;
-  const start = selected ? selected.start + selected.length : Math.floor(transport.beat);
+  const from = selected ? selected.start + selected.length : Math.floor(transport.beat);
+  const start = firstFreeBeat(track, from, clipboard.length);
   const clip: Clip = { ...structuredClone(clipboard), id: uid("c"), start };
   daw.edit(() => track.clips.push(clip));
   daw.select(track.id, clip.id);
@@ -106,15 +111,34 @@ export function splitClip(): void {
   daw.select(found.track.id, right.id);
 }
 
-/** Import an audio file and place it at the playhead on the selected track (or a new one). */
+/** The first beat at or after `from` where a clip of `length` beats fits on the track without overlapping. */
+export function firstFreeBeat(track: Track | null, from: number, length: number): number {
+  let at = from;
+  let moved = true;
+  while (track && moved) {
+    moved = false;
+    for (const other of track.clips) {
+      if (other.start < at + length && other.start + other.length > at) {
+        at = other.start + other.length;
+        moved = true;
+      }
+    }
+  }
+  return at;
+}
+
+/**
+ * Import an audio file onto the selected track (or a new one), at the playhead. If the clip would
+ * overlap a clip already on that track, it moves to the first free position after it.
+ */
 export async function importAudio(file: File): Promise<void> {
   toast.show(`Importing ${file.name}…`);
   try {
     const asset = await uploadAudio(file);
     const beats = asset.seconds / transport.secondsPerBeat;
-    const start = Math.max(0, Math.floor(transport.beat));
-    const clip = newAudioClip(start, asset.id, beats, asset.name.replace(/\.[^.]+$/, ""));
     let track = daw.selectedTrack;
+    const start = firstFreeBeat(track, Math.max(0, Math.floor(transport.beat)), beats);
+    const clip = newAudioClip(start, asset.id, beats, asset.name.replace(/\.[^.]+$/, ""));
     daw.edit((p) => {
       if (!track) {
         track = newTrack(p.tracks.length, { name: clip.name || "Audio" });

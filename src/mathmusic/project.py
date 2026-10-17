@@ -271,7 +271,7 @@ def _list(raw: dict, key: str, limit: int, where: str) -> list:
 
 def parse_effect(raw: dict, where: str) -> Effect:
     kind = raw.get("type")
-    if kind not in EFFECT_SPECS:
+    if not isinstance(kind, str) or kind not in EFFECT_SPECS:  # a list or object can't be looked up
         raise ProjectError(f"{where}.type must be one of {', '.join(EFFECT_SPECS)}")
     given = raw.get("params") or {}
     if not isinstance(given, dict):

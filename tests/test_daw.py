@@ -1,7 +1,6 @@
 """Tests for the DAW layer: project model, effects, engine, storage and API."""
 
 import json
-import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -196,6 +195,27 @@ def test_bad_clip_formula_is_reported_and_others_still_play():
     assert result.stereo.size and np.abs(result.stereo).max() > 0
 
 
+@pytest.mark.parametrize("expression", ["max(x)", "sin(x, 2)"])
+def test_formula_errors_that_are_not_value_errors_are_contained(expression):
+    data = small_project()
+    data["tracks"][0]["clips"].append(
+        {"id": "c3", "start": 4, "length": 4, "expression": expression, "notes": 4}
+    )
+    result = engine.render(parse_project(data), sample_rate=SR)
+    assert any(error["clip"] == "c3" for error in result.errors)
+    assert np.abs(result.stereo).max() > 0
+def test_bad_arity_formula_is_reported_not_raised():
+    # min(x) parses but calls the whitelisted minimum() with too few arguments;
+    # it must be reported against its clip, not escape as a TypeError
+    data = small_project()
+    data["tracks"][0]["clips"].append(
+        {"id": "c2", "start": 4, "length": 4, "expression": "min(x)", "notes": 4}
+    )
+    result = engine.render(parse_project(data), sample_rate=SR)
+    assert [e["clip"] for e in result.errors] == ["c2"]
+    assert result.stereo.size and np.abs(result.stereo).max() > 0
+
+
 def test_mute_and_solo():
     data = small_project()
     data["tracks"].append(
@@ -318,6 +338,18 @@ def test_api_render_rejects_invalid_project(api):
     assert status == 400 and "bpm" in body["error"]
 
 
+def test_api_reports_bad_arity_formula_instead_of_crashing(api):
+    # a formula that parses but cannot run is a per-clip error, not a 500
+    data = small_project()
+    data["tracks"][0]["clips"][0]["expression"] = "min(x)"
+    status, body = api("/api/project/render", "POST", {"project": data})
+    assert status == 200
+    assert body["tracks"][0]["clips"][0]["error"]
+
+    status, body = api("/api/plot", "POST", {"formula": "min(x)", "start": 0, "end": 1})
+    assert status == 400 and "min" in body["error"]
+
+
 def test_api_plot(api):
     status, body = api("/api/plot", "POST", {"formula": "1/x", "start": -1, "end": 1, "points": 3})
     assert status == 200
@@ -426,6 +458,97 @@ def test_midi_export_matches_the_audio_notes():
     assert [e[0] for e in notes_on] == [round(s["start"] * PPQ) for s in clip]
     offs = [e for e in tracks[1] if e[1] & 0xF0 == 0x80]
     assert len(offs) == len(notes_on)
+
+
+def test_render_rejects_an_unknown_output_format_before_rendering(tmp_path, capsys):
+    from mathmusic.cli import main
+
+    data = small_project()
+    src = tmp_path / "song.json"
+    src.write_text(json.dumps(data))
+    for name in ("out.txt", "out_dir/", "song"):
+        assert main(["render", str(src), "-o", str(tmp_path / name)]) == 2
+        assert "must end in .mp3, .wav or .mid" in capsys.readouterr().err
+    assert not any(tmp_path.glob("out*"))
+
+
+def test_render_reports_a_corrupt_project_file(tmp_path, capsys):
+    from mathmusic.cli import main
+
+    bad = tmp_path / "broken.json"
+    bad.write_text("{not json")
+    assert main(["render", str(bad), "-o", str(tmp_path / "x.wav")]) == 2
+    assert "error:" in capsys.readouterr().err
+    assert not (tmp_path / "x.wav").exists()
+
+
+def test_server_shutdown_closes_the_socket_and_removes_renders(monkeypatch):
+    from mathmusic import server
+
+    class Interrupted:
+        closed = False
+
+        def serve_forever(self):
+            raise KeyboardInterrupt  # what ctrl-c does while serving
+
+        def server_close(self):
+            Interrupted.closed = True
+
+    cleaned = []
+    monkeypatch.setattr(server, "make_server", lambda port: Interrupted())
+    monkeypatch.setattr(server.STORE, "cleanup", lambda: cleaned.append(True))
+    server.serve(port=8799, open_browser=False)  # returns normally on ctrl-c
+    assert Interrupted.closed and cleaned == [True]
+
+
+def test_stems_with_colliding_names_are_all_kept(tmp_path):
+    from mathmusic.cli import main
+
+    data = small_project()
+    data["tracks"] = [
+        {"id": "t1", "name": "Bass", "sound": "sine", "clips": [{"id": "c1", "start": 0, "length": 4, "notes": 4, "expression": "x"}]},
+        {"id": "t2", "name": "Bass!", "sound": "sine", "clips": [{"id": "c2", "start": 0, "length": 4, "notes": 4, "expression": "sin(x)"}]},
+    ]
+    src = tmp_path / "song.json"
+    src.write_text(json.dumps(data))
+    out = tmp_path / "stems"
+    assert main(["render", str(src), "--stems", str(out)]) == 0
+    assert sorted(p.name for p in out.glob("*.wav")) == ["Bass-t2.wav", "Bass.wav"]
+
+
+def test_midi_names_are_valid_utf8_when_truncated():
+    from mathmusic.midi import project_to_midi
+
+    data = small_project(name="Song")
+    data["tracks"] = [{"id": "t1", "name": "a" + "é" * 60, "sound": "sine", "clips": []}]  # 121 bytes
+    _, _, tracks = read_midi(project_to_midi(parse_project(data)))
+    names = [bytes(e[2]).decode("utf-8") for e in tracks[1] if e[1] == 0xFF and e[2][0] == 0x03]
+    assert names and len(names[0].encode("utf-8")) <= 120
+def test_midi_never_stacks_the_same_pitch():
+    from mathmusic.midi import project_to_midi
+
+    data = small_project()
+    data["tracks"] = [
+        {
+            "id": "t1",
+            "sound": "sine",
+            "clips": [
+                {"id": "c1", "start": 0, "length": 4, "notes": 1, "expression": "x", "gate": 1},
+                {"id": "c2", "start": 0.5, "length": 1, "notes": 1, "expression": "x", "gate": 1},
+                {"id": "c3", "start": 0.5, "length": 1, "notes": 1, "expression": "x", "gate": 0.5},
+            ],
+        }
+    ]
+    _, _, tracks = read_midi(project_to_midi(parse_project(data)))
+    per_pitch: dict[int, list[int]] = {}
+    for tick, status, body in tracks[1]:
+        if status & 0xF0 in (0x80, 0x90):
+            kind = 1 if status & 0xF0 == 0x90 and body[1] else 0
+            per_pitch.setdefault(body[0], []).append(kind)
+    for pitch, kinds in per_pitch.items():
+        # every note-on is followed by its note-off before the next note-on
+        assert kinds == [1, 0] * (len(kinds) // 2), (pitch, kinds)
+        assert kinds.count(1) >= 1
 
 
 def test_midi_skips_drum_channel_and_uses_gm_program():
@@ -588,6 +711,49 @@ def test_import_audio_normalises_and_dedupes(tmp_path, monkeypatch):
     assert len(audio) == pytest.approx(44100, abs=50)  # resampled to 44.1 kHz
     with pytest.raises(assets.AssetError):
         assets.import_audio(b"not audio at all", "junk.wav")
+
+
+def test_builtin_wav_reader_decodes_every_sample_width_and_channel_count():
+    import io
+    import wave
+
+    from mathmusic import assets
+    from mathmusic.synth import SAMPLE_RATE
+
+    def wav_bytes(width, channels, frames):
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as out:
+            out.setnchannels(channels)
+            out.setsampwidth(width)
+            out.setframerate(SAMPLE_RATE)
+            out.writeframes(frames)
+        return buffer.getvalue()
+
+    # 8-bit is unsigned: 128 is silence, 0 is full negative
+    eight = assets._read_wav(wav_bytes(1, 1, bytes([128, 255, 0])))
+    assert eight[:, 0] == pytest.approx([0.0, 127 / 128, -1.0])
+    # 24-bit is signed and little-endian: the sign must extend across the top byte
+    raw24 = b"".join(v.to_bytes(3, "little", signed=True) for v in [(1 << 23) - 1, -1, -(1 << 23)])
+    assert assets._read_wav(wav_bytes(3, 1, raw24))[:, 0] == pytest.approx([1.0, 0.0, -1.0], abs=1e-6)
+    # 32-bit signed
+    raw32 = np.array([2**31 - 1, -(2**31), 0], dtype="<i4").tobytes()
+    assert assets._read_wav(wav_bytes(4, 1, raw32))[:, 0] == pytest.approx([1.0, -1.0, 0.0], abs=1e-6)
+    # more than two channels: the first two are kept
+    raw = np.array([1000, 2000, 3000, 4000, 5000, 6000], dtype="<i2").tobytes()
+    assert assets._read_wav(wav_bytes(2, 3, raw)).shape == (2, 2)
+
+
+def test_wav_without_a_sample_rate_is_a_clear_error():
+    import struct
+
+    from mathmusic import assets
+
+    data = b"\x00\x00" * 100
+    fmt = struct.pack("<HHIIHH", 1, 2, 0, 0, 4, 16)  # PCM, stereo, rate 0
+    body = b"WAVE" + b"fmt " + struct.pack("<I", len(fmt)) + fmt + b"data" + struct.pack("<I", len(data)) + data
+    # the built-in WAV reader, used when ffmpeg isn't installed
+    with pytest.raises(assets.AssetError, match="sample rate"):
+        assets._read_wav(b"RIFF" + struct.pack("<I", len(body)) + body)
 
 
 def test_audio_clip_plays_its_sample_at_its_position(tmp_path, monkeypatch):
@@ -984,7 +1150,7 @@ def test_api_type_errors_are_400(api):
 
 
 def test_mp3_failure_is_reported_as_json(api, monkeypatch):
-    import mathmusic.server as server
+    from mathmusic import server
 
     def boom(*args, **kwargs):
         raise RuntimeError("ffmpeg is needed for MP3 output")
@@ -999,6 +1165,119 @@ def test_mp3_failure_is_reported_as_json(api, monkeypatch):
 def test_cli_rejects_out_of_range_options(tmp_path):
     from mathmusic.cli import main
 
-    for argv in (["sin(x)", "--bpm", "0"], ["sin(x)", "--samples", "1"], ["sin(x)", "--octaves", "9"], ["sin(x)", "--step", "0"]):
+    for argv in (
+        ["sin(x)", "--bpm", "0"],
+        ["sin(x)", "--bpm", "inf"],
+        ["sin(x)", "--samples", "1"],
+        ["sin(x)", "--octaves", "9"],
+        ["sin(x)", "--step", "0"],
+        ["sin(x)", "--step", "inf"],
+        ["sin(x)", "--start", "nan", "--end", "2"],
+        ["sin(x)", "--start", "0", "--end", "inf"],
+        ["sin(x)", "--start", "2", "--end", "1"],
+        ["sin(x)", "--root", "200"],
+        ["sin(x)", "--root", "-5"],
+        ["sin(x)", "--root", "120", "--octaves", "4"],
+        ["sin(x)", "--bpm", "0.0001", "--samples", "2000"],
+    ):
         assert main([*argv, "-o", str(tmp_path / "x.wav")]) == 2
     assert not (tmp_path / "x.wav").exists()
+
+
+def test_sketch_publish_uploads_an_mp3_even_for_a_wav_output(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    from mathmusic import cli
+
+    uploaded = {}
+
+    def fake_publish(path, title, **kwargs):
+        uploaded["path"] = path
+        return 7
+
+    def fake_encode_mp3(wav_path, mp3_path, **kwargs):
+        # ffmpeg is not guaranteed on CI runners; this test is about which file is uploaded
+        mp3_path.write_bytes(b"ID3")
+        return mp3_path
+
+    monkeypatch.setitem(sys.modules, "mathmusic.publish", types.SimpleNamespace(publish_to_plyr=fake_publish))
+    monkeypatch.setattr(cli, "encode_mp3", fake_encode_mp3)
+    out = tmp_path / "song.wav"
+    assert cli.main(["sin(x)", "--publish", "--samples", "8", "-o", str(out)]) == 0
+    assert uploaded["path"].suffix == ".mp3"
+    assert out.exists() and out.suffix == ".wav"  # the WAV is kept beside the upload
+
+
+def test_sketch_output_must_be_mp3_or_wav(tmp_path, capsys):
+    from mathmusic.cli import main
+
+    assert main(["sin(x)", "-o", str(tmp_path / "out.txt")]) == 2
+    assert "must end in .mp3 or .wav" in capsys.readouterr().err
+    assert not (tmp_path / "out.txt").exists()
+
+
+def test_render_fails_clearly_for_a_project_with_no_clips(tmp_path, capsys):
+    from mathmusic.cli import main
+
+    src = tmp_path / "empty.json"
+    src.write_text(json.dumps({"tracks": [{"id": "t1", "sound": "sine", "clips": []}]}))
+    assert main(["render", str(src), "-o", str(tmp_path / "x.wav")]) == 2
+    assert "no clips to render" in capsys.readouterr().err
+
+
+def test_render_writes_midi_for_a_mid_output(tmp_path):
+    from mathmusic.cli import main
+
+    src = tmp_path / "song.json"
+    src.write_text(json.dumps(small_project()))
+    out = tmp_path / "song.mid"
+    assert main(["render", str(src), "-o", str(out)]) == 0
+    assert out.read_bytes()[:4] == b"MThd"
+
+
+def test_sketch_reports_a_bad_expression_without_writing_a_file(tmp_path, capsys):
+    from mathmusic.cli import main
+
+    assert main(["__import__('os')", "-o", str(tmp_path / "x.wav")]) == 2
+    assert "error:" in capsys.readouterr().err
+    assert not (tmp_path / "x.wav").exists()
+
+
+def test_bad_pan_automation_is_reported_on_tracks_and_buses():
+    data = small_project()
+    data["tracks"][0]["automation"] = {"pan": "log(x - 100)"}  # undefined over the whole song
+    data["tracks"][0]["sends"] = [{"bus": "b1", "level": 0.5}]
+    # a bus is only evaluated when something is sent to it, so the track sends to it
+    data["tracks"].append({"id": "b1", "sound": "sine", "bus": True, "clips": [],
+                           "automation": {"pan": "log(x - 100)"}})
+    result = engine.render(parse_project(data), sample_rate=SR)
+    fields = {(e["track"], e["field"]) for e in result.errors}
+    assert ("t1", "automation.pan") in fields and ("b1", "automation.pan") in fields
+    assert np.abs(result.stereo).max() > 0  # the track still plays without its pan automation
+
+
+def test_bad_sound_silences_curve_clips_but_audio_clips_still_play(tmp_path, monkeypatch):
+    from mathmusic import assets
+
+    monkeypatch.setenv("MATHMUSIC_HOME", str(tmp_path))
+    asset = assets.import_audio(wav_bytes(seconds=1.0), "tone.wav")["id"]
+    data = small_project()
+    data["tracks"][0]["sound"] = "__import__('os')"  # rejected sound: curve clips go silent
+    data["tracks"][0]["clips"].append(
+        {"id": "a1", "kind": "audio", "asset": asset, "start": 0, "length": 4}
+    )
+    result = engine.render(parse_project(data), sample_rate=SR)
+    assert any(e["field"] == "sound" for e in result.errors)
+    assert np.abs(result.stereo).max() > 0
+
+
+def test_idle_bus_formulas_are_reported_even_though_nothing_is_sent():
+    data = small_project()
+    data["tracks"].append({"id": "b1", "sound": "sine", "bus": True, "clips": [],
+                           "automation": {"pan": "log(x - 100)"},
+                           "effects": [{"type": "lowpass", "params": {"cutoff": "log(x - 100)"}}]})
+    result = engine.render(parse_project(data), sample_rate=SR)  # nothing is sent to b1
+    fields = {(e["track"], e["field"]) for e in result.errors}
+    assert ("b1", "automation.pan") in fields and ("b1", "effects[0]") in fields
+    assert np.abs(result.stereo).max() > 0  # the idle bus adds no sound, but the track still plays

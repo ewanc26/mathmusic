@@ -5,7 +5,6 @@ import io
 import sys
 import types
 import wave
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -35,6 +34,35 @@ def _fake_plyrfm(monkeypatch, record: dict) -> None:
     monkeypatch.setitem(sys.modules, "plyrfm", module)
 
 
+def test_concurrent_mp3_requests_encode_once_and_never_see_a_partial_file(tmp_path, monkeypatch):
+    import threading
+    import time
+
+    from mathmusic import server
+
+    wav = tmp_path / "render.wav"
+    wav.write_bytes(b"RIFF fake wav")
+    calls = []
+
+    def slow_encode(src, dst):
+        calls.append(dst)
+        dst.write_bytes(b"partial")  # ffmpeg writes incrementally; readers must not see this name
+        time.sleep(0.2)
+        dst.write_bytes(b"complete mp3")
+        return dst
+
+    monkeypatch.setattr(server, "encode_mp3", slow_encode)
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(server._ensure_mp3("id", wav).read_bytes())) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(calls) == 1  # one encode for all the requests that arrived together
+    assert results == [b"complete mp3"] * 6
+    assert not any(tmp_path.glob("*.part.mp3"))
+
+
 def test_publish_uploads_with_the_token(tmp_path, monkeypatch):
     record: dict = {}
     _fake_plyrfm(monkeypatch, record)
@@ -46,6 +74,29 @@ def test_publish_uploads_with_the_token(tmp_path, monkeypatch):
     assert publish_to_plyr(audio, "Title", album="Album", tags={"math"}, description="notes") == 4242
     assert record["token"] == "secret"
     assert record["album"] == "Album" and record["tags"] == {"math"} and record["description"] == "notes"
+
+
+def test_publish_reports_a_failed_upload_as_a_runtime_error(tmp_path, monkeypatch):
+    import pytest as _pytest
+
+    class Tracks:
+        def upload(self, *args, **kwargs):
+            raise OSError("ProxyError: 403 Forbidden")
+
+    class PlyrClient:
+        def __init__(self, token):
+            self.tracks = Tracks()
+
+    module = types.ModuleType("plyrfm")
+    module.PlyrClient = PlyrClient
+    monkeypatch.setitem(sys.modules, "plyrfm", module)
+    monkeypatch.setenv("PLYR_TOKEN", "secret")
+    from mathmusic.publish import publish_to_plyr
+
+    audio = tmp_path / "a.mp3"
+    audio.write_bytes(b"not really audio")
+    with _pytest.raises(RuntimeError, match="upload to plyr.fm failed: ProxyError"):
+        publish_to_plyr(audio, "Title")
 
 
 def test_publish_needs_a_token(tmp_path, monkeypatch):
@@ -221,9 +272,10 @@ def test_serve_command_takes_a_port(monkeypatch):
 
 
 def test_midi_velocity_follows_the_clip_gain():
+    from test_daw import read_midi
+
     from mathmusic.midi import project_to_midi
     from mathmusic.project import parse_project
-    from test_daw import read_midi
 
     def velocity_for(gain):
         data = _song()
@@ -278,7 +330,7 @@ def test_api_range_past_the_end_is_416(api):
 
 
 def test_api_unexpected_failure_is_a_500_with_a_message(api, monkeypatch):
-    import mathmusic.server as server
+    from mathmusic import server
 
     def boom(payload):
         raise TypeError("engine exploded")
@@ -300,8 +352,7 @@ def test_api_publish_needs_a_title(api):
 
 
 def test_api_publish_passes_the_metadata_through(api, monkeypatch):
-    import mathmusic.publish as publish
-    import mathmusic.server as server
+    from mathmusic import publish, server
 
     monkeypatch.setattr(server, "encode_mp3", lambda wav, mp3: mp3.write_bytes(b"ID3fake"))
     captured: dict = {}

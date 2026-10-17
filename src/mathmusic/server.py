@@ -105,6 +105,15 @@ def parse_options(raw: dict) -> Options:
             raise ValueError(f"{key} must be between {low} and {high}")
         return value
 
+    def finite(key: str, default: float) -> float:
+        try:
+            value = float(raw.get(key, default))
+        except (TypeError, ValueError):
+            raise ValueError(f"{key} must be a number") from None
+        if not math.isfinite(value):
+            raise ValueError(f"{key} must be a finite number")
+        return value
+
     samples = int(number("samples", 96, 2, MAX_SAMPLES))
     scale = str(raw.get("scale", "pentatonic"))
     if scale not in SCALES:
@@ -115,8 +124,8 @@ def parse_options(raw: dict) -> Options:
     pitch_mode = str(raw.get("pitch_mode", "shared"))
     if pitch_mode not in PITCH_MODES:
         raise ValueError(f"unknown pitch mode {pitch_mode!r}")
-    start = float(raw.get("start", 0.0))
-    end = float(raw.get("end", 4 * pi))
+    start = finite("start", 0.0)
+    end = finite("end", 4 * pi)
     if end <= start:
         raise ValueError("end must be greater than start")
 
@@ -140,6 +149,8 @@ def render_project(payload: dict) -> dict:
         raise ValueError("options must be an object")
     opts = parse_options(options)
     expressions = payload.get("expressions") or []
+    if not isinstance(expressions, list):
+        raise ValueError("expressions must be a list")
 
     errors: list[dict] = []
     active: list[tuple[int, str, str | None, bool]] = []
@@ -155,7 +166,11 @@ def render_project(payload: dict) -> dict:
             errors.append({"index": index, "error": "waveform must be text"})
             continue
         try:
-            Expression(source)
+            expression = Expression(source)
+            # sample a few points so a formula that parses but cannot run (for
+            # example a whitelisted function called with the wrong arguments) is
+            # reported against this expression instead of failing the whole render
+            expression.evaluate(np.linspace(opts.start, opts.end, 8))
             resolve(waveform, index)  # validates the sound before the whole render fails
         except ValueError as exc:  # ExpressionError is a ValueError
             errors.append({"index": index, "error": str(exc)})
@@ -226,10 +241,22 @@ def publish_project(payload: dict) -> dict:
     return {"track_id": track_id}
 
 
+_MP3_LOCK = threading.Lock()
+
+
 def _ensure_mp3(render_id: str, wav: Path) -> Path:
+    """The MP3 for a render, encoded once. Requests that arrive together wait for the one encode,
+    and the file only appears under its final name once ffmpeg has finished, so nobody is served
+    a partly written or failed encode."""
     mp3 = wav.with_suffix(".mp3")
-    if not mp3.exists():
-        encode_mp3(wav, mp3)
+    with _MP3_LOCK:
+        if not mp3.exists():
+            partial = wav.with_name(f"{wav.stem}.part.mp3")
+            try:
+                encode_mp3(wav, partial)
+                partial.replace(mp3)
+            finally:
+                partial.unlink(missing_ok=True)
     return mp3
 
 
@@ -327,7 +354,7 @@ def plot_formula(payload: dict) -> dict:
         start = float(payload.get("start", 0.0))
         end = float(payload.get("end", 1.0))
         points = int(payload.get("points", 200))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: points=Infinity
         raise ValueError("start, end and points must be numbers") from None
     if not (np.isfinite(start) and np.isfinite(end)) or end <= start:
         raise ValueError("end must be greater than start")
@@ -386,7 +413,9 @@ class Handler(BaseHTTPRequestHandler):
         # application/octet-stream is not a CORS "simple" type, so a cross-site upload needs a preflight
         if not self.headers.get("Content-Type", "").startswith("application/octet-stream"):
             return self._json(415, {"error": "upload the file as application/octet-stream"})
-        length = int(self.headers.get("Content-Length", 0) or 0)
+        length = self._content_length()
+        if length is None:
+            return self._json(400, {"error": "Content-Length must be a non-negative whole number"})
         if length > assets.MAX_UPLOAD:
             return self._json(413, {"error": f"files over {assets.MAX_UPLOAD // (1024 * 1024)} MB are not accepted"})
         filename = unquote(self.headers.get("X-Filename", ""))[:200]
@@ -438,6 +467,18 @@ class Handler(BaseHTTPRequestHandler):
             return storage.save_project(unquote(path.removeprefix("/api/projects/")), payload.get("project"))
         raise FileNotFoundError(path)
 
+    def _content_length(self) -> int | None:
+        """The request body length, or None if the header isn't a non-negative integer.
+
+        A negative length would make rfile.read() wait for the client to close the
+        connection, so it is refused like any other malformed header.
+        """
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return None
+        return length if length >= 0 else None
+
     def _handle_json(self, route, raw: bool = False) -> None:
         """Parse a JSON body and run `route`. With raw=True the route writes its own response."""
         if not self._request_allowed():
@@ -446,7 +487,9 @@ class Handler(BaseHTTPRequestHandler):
         # Requiring JSON forces a CORS preflight for any cross-site request.
         if not self.headers.get("Content-Type", "").startswith("application/json"):
             return self._json(415, {"error": "requests must be application/json"})
-        length = int(self.headers.get("Content-Length", 0) or 0)
+        length = self._content_length()
+        if length is None:
+            return self._json(400, {"error": "Content-Length must be a non-negative whole number"})
         if length > MAX_BODY:
             return self._json(413, {"error": "request too large"})
 

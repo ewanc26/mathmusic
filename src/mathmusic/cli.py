@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,9 @@ from mathmusic.composer import Options, build_voices
 from mathmusic.expr import ExpressionError
 from mathmusic.scales import SCALES
 from mathmusic.synth import SAMPLE_RATE, encode_mp3, mix, write_wav
+
+
+SKETCH_MAX_SECONDS = 3600  # sketch renders are held in memory, so keep them to an hour
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -84,6 +88,9 @@ def render_main(argv: list[str]) -> int:
         help="write one WAV per clip track into DIR instead of a mix (track output before the master chain)",
     )
     args = parser.parse_args(argv)
+    if args.output is not None and args.output.suffix.lower() not in (".mp3", ".wav", ".mid", ".midi"):
+        print(f"error: {args.output} must end in .mp3, .wav or .mid", file=sys.stderr)
+        return 2
 
     try:
         project = parse_project(json.loads(args.project.read_text(encoding="utf-8")))
@@ -99,6 +106,7 @@ def render_main(argv: list[str]) -> int:
         stems = engine.render_stems(project)
         args.stems.mkdir(parents=True, exist_ok=True)
         written = 0
+        used: set[str] = set()
         for track in project.tracks:
             if track.bus or track.id not in stems:
                 continue
@@ -106,6 +114,9 @@ def render_main(argv: list[str]) -> int:
             if not audio.size or not np.abs(audio).any():
                 continue
             safe = re.sub(r"[^A-Za-z0-9_-]+", "-", track.name).strip("-") or track.id
+            if safe in used:  # "Bass" and "Bass!" both sanitise to "Bass"; keep both files
+                safe = f"{safe}-{track.id}"
+            used.add(safe)
             path = args.stems / f"{safe}.wav"
             write_wav(path, audio, SAMPLE_RATE)
             written += 1
@@ -188,11 +199,26 @@ def main(argv: list[str] | None = None) -> int:
     if not 1 <= args.octaves <= 4:
         print("error: --octaves must be between 1 and 4", file=sys.stderr)
         return 2
-    if args.bpm <= 0:
-        print("error: --bpm must be greater than 0", file=sys.stderr)
+    if not (math.isfinite(args.start) and math.isfinite(args.end)):
+        print("error: --start and --end must be finite numbers", file=sys.stderr)
         return 2
-    if args.step <= 0:
-        print("error: --step must be greater than 0", file=sys.stderr)
+    if args.end <= args.start:
+        print("error: --end must be greater than --start", file=sys.stderr)
+        return 2
+    if not 0 < args.bpm < math.inf:
+        print("error: --bpm must be a finite number greater than 0", file=sys.stderr)
+        return 2
+    if not 0 < args.step < math.inf:
+        print("error: --step must be a finite number greater than 0", file=sys.stderr)
+        return 2
+    if args.output.suffix.lower() not in (".mp3", ".wav"):
+        print(f"error: {args.output} must end in .mp3 or .wav", file=sys.stderr)
+        return 2
+    if not 0 <= args.root <= 127 or args.root + 12 * args.octaves > 127:
+        print("error: --root must be a MIDI note from 0 to 127, with the octaves above it also in that range", file=sys.stderr)
+        return 2
+    if args.samples * args.step * 60 / args.bpm > SKETCH_MAX_SECONDS:
+        print(f"error: that would render more than {SKETCH_MAX_SECONDS // 60} minutes; lower --samples or --step, or raise --bpm", file=sys.stderr)
         return 2
     opts = Options(
         start=args.start,
@@ -221,12 +247,16 @@ def main(argv: list[str] | None = None) -> int:
         print("error: none of the expressions produced any defined points in that range", file=sys.stderr)
         return 2
 
-    with tempfile.TemporaryDirectory() as tmp:
-        wav = write_wav(Path(tmp) / "track.wav", stereo)
-        if output.suffix.lower() == ".wav":
-            wav.replace(output)
-        else:
-            encode_mp3(wav, output)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            wav = write_wav(Path(tmp) / "track.wav", stereo)
+            if output.suffix.lower() == ".wav":
+                wav.replace(output)
+            else:
+                encode_mp3(wav, output)
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+        print(f"error: could not write {output}: {exc}", file=sys.stderr)
+        return 2
     print(f"wrote {output} ({stereo.shape[0] / SAMPLE_RATE:.1f}s, {len(voices)} voice(s))")
 
     if args.plot:
@@ -240,15 +270,21 @@ def main(argv: list[str] | None = None) -> int:
 
         title = args.title or " + ".join(args.expressions)
         tags = {t.strip() for t in args.tags.split(",") if t.strip()} if args.tags else None
+        # plyr.fm takes MP3, so a WAV output is encoded to a temporary MP3 for the upload
         try:
-            track_id = publish_to_plyr(
-                output,
-                title,
-                album=args.album,
-                tags=tags,
-                description=args.description,
-            )
-        except (RuntimeError, ValueError) as exc:
+            with tempfile.TemporaryDirectory() as tmp:
+                mp3 = output
+                if output.suffix.lower() != ".mp3":
+                    mp3 = Path(tmp) / "upload.mp3"
+                    encode_mp3(output, mp3)
+                track_id = publish_to_plyr(
+                    mp3,
+                    title,
+                    album=args.album,
+                    tags=tags,
+                    description=args.description,
+                )
+        except (RuntimeError, ValueError, OSError, subprocess.CalledProcessError) as exc:
             print(f"publish failed: {exc}", file=sys.stderr)
             return 1
         print(f"published to plyr.fm as track {track_id}")
