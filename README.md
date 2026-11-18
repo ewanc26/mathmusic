@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://github.com/ewanc26/mathmusic/actions/workflows/ci.yml"><img src="https://github.com/ewanc26/mathmusic/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/ewanc26/mathmusic?label=licence" alt="Licence"></a>
+  <a href="https://github.com/sponsors/ewanc26"><img src="https://img.shields.io/github/sponsors/ewanc26?logo=githubsponsors&logoColor=white&label=sponsors" alt="Sponsor"></a>
+</p>
+
 # mathmusic
 
 A DAW where everything is a graph. Music is arranged from mathematical curves: each clip plays a curve `y = f(x)`, read left to right as time, with its height mapped to pitch. Sounds, envelopes, automation and effects are formulas too, and every one of them is drawn as a graph while you edit it.
@@ -13,7 +19,8 @@ mathmusic serve            # opens the DAW at http://127.0.0.1:8765
 - **Recording:** **Rec** (or R) records from your microphone while the project plays, so you can play along. The take lands as an audio clip where recording started, on the selected track, or on a new Recording track if none is selected. The browser asks for microphone permission the first time, and decoding the take needs ffmpeg.
 - **Clip editor:** the curve plotted against the scale's pitch lattice. Each horizontal line is a note, and each sample snaps to the nearest one. You set the expression, the x range, the number of notes, the start and length in beats, the rhythm, the swing (shuffle) amount, octave, range, gate and gain, invert, and an optional fixed y range.
 - **Tracks:** a sound (waveform, instrument or your own formula), an envelope over each note, volume, pan, mute and solo. The waveform's single cycle and the envelope are both plotted.
-- **Effects:** chains on every track and on the master: a waveshaper with a formula transfer curve, lowpass and highpass biquads, a peaking EQ, a compressor, a feedback delay in beats, and a Schroeder reverb. You can bypass and reorder them.
+- **Effects:** chains on every t
+rack and on the master: a waveshaper with a formula transfer curve, lowpass and highpass biquads, a peaking EQ, a compressor, a feedback delay in beats, and a Schroeder reverb. You can bypass and reorder them.
 - **Automation:** gain and pan as formulas of the beat, plotted over the song, with presets for fades, tremolo, swells and auto-pan. Effect parameters can be automated too: press **ƒ** next to a filter cutoff or Q, a delay's feedback or mix, a reverb's mix, a shaper's mix, an EQ's frequency, gain or Q, or a compressor's threshold, and write it as a formula of the beat. For example, `300 + 2500*(0.5 + 0.5*sin(2*pi*x/16))` is a filter sweep.
 - **Mixer:** channel strips with faders, pan, mute and solo, and level meters that follow the playhead. Any track can also send to a **bus** (effect return) track, which runs its own effects and automation on the sum of its sends before joining the master.
 - **Transport:** play and pause, loop (drag on the ruler), a bar.beat position, follow-playhead, and zoom. A **metronome** (K) clicks on every beat and accents the first beat of each bar. The click is a decaying sine burst made with Web Audio, and it's never part of the render or the exports.
@@ -28,7 +35,8 @@ mathmusic serve            # opens the DAW at http://127.0.0.1:8765
 | --- | --- | --- |
 | Clip | runs across the clip from "x from" to "x to" | `sin(x)*exp(-x/8)` |
 | Waveform | phase, one cycle from 0 to 1 | `sin(2*pi*x) + 0.3*sin(6*pi*x)` |
-| Envelope | position in the note, 0 to 1 | `exp(-4*x)` |
+| Envelope | position in
+ the note, 0 to 1 | `exp(-4*x)` |
 | Gain automation | song position in beats; multiplies the volume | `min(1, x/8)` |
 | Pan automation | song position in beats; added to the pan | `sin(2*pi*x/8)` |
 | Effect parameter (ƒ) | song position in beats; clamped to the parameter's range | `400 + 300*sin(2*pi*x/8)` |
@@ -56,7 +64,8 @@ Formulas accept `+ - * / ^ %`, `x`, `pi`, `tau`, `e`, and functions such as `sin
 
 ```bash
 mathmusic render ~/.ewanc26/mathmusic/projects/"My Song".json -o song.mp3   # render a saved project (.mp3, .wav or .mid)
-mathmusic render song.json --stems out/           # one WAV per clip track, before the master chain
+mathmusic render song.json --stems out/  
+         # one WAV per clip track, before the master chain
 mathmusic "sin(x)" "x^2/8" --wave bell -o sketch.mp3                # quick sketch from expressions, no project
 mathmusic instruments
 mathmusic serve --port 9000 --no-browser
@@ -99,7 +108,8 @@ The interface is a thin client over a small local JSON API. All responses are JS
 | --- | --- | --- |
 | GET | `/api/status` | ffmpeg, plyrfm and `PLYR_TOKEN` availability |
 | GET | `/api/catalogue` | waveforms, instruments, effects and scales for the menus |
-| GET | `/api/project/default` | a small starter project |
+| GET | `/ap
+i/project/default` | a small starter project |
 | GET | `/api/projects` | list saved projects and the projects folder |
 | GET | `/api/projects/{name}` | load one saved project |
 | PUT | `/api/projects/{name}` | save a project |
@@ -122,6 +132,9 @@ The Publish tab, or `--publish` in sketch mode, uploads the mix as an MP3 to [pl
 .venv/bin/python -m pytest          # engine, effects, MIDI, samples and the HTTP API, including checks on the rendered audio
 cd frontend && pnpm check           # the interface's types
 ```
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and the checks required before opening a pull request.
 
 ## Licence
 
