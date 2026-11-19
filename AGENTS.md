@@ -25,21 +25,10 @@ A DAW where every clip, sound, envelope, automation and effect is a formula, wit
 - Keep changes scoped and update tests or documentation when behavior changes.
 - Use feature branches and pull requests.
 - Treat generated files, credentials, deployment configuration, and release metadata as sensitive.
-- Expressions are user input. Keep the parser in `expr.py` w
+- Expressions are user input. Keep the parser in `expr.py` whitelist-based; never evaluate raw strings with `eval` outside it.
 - Never commit `PLYR_TOKEN` values or `.env` files. Publishing reads the token from the environment only.
 
 <!-- allowed-agents -->
-## Allowed agents
-
-Only **Claude** (Anthropic) and **Mistral** (Mistral AI) may be used as coding agents in this repository. This rule supersedes any earlier agent-attribution guidance in this file.
-
-- Agent-assisted commits must credit only one of those agents:
-  - `Co-Authored-By: Claude <noreply@anthropic.com>`
-  - `Co-Authored-By: Mistral Vibe <vibe@mistral.ai>`
-- Allowed agent footers are `🤖 Generated with [Claude Code](https://claude.com/claude-code)` and `🤖 Generated with [Mistral Vibe](https://mistral.ai)`.
-- Do not add `Co-Authored-By:` trailers, `Generated with` footers, author names, or committer identities for any other agent or AI tool.
-- Do not credit another agent in commit metadata.
-
 ## Allowed agents
 
 Only **Claude** (Anthropic) and **Mistral** (Mistral AI) may be used as coding agents in this repository. This rule supersedes any earlier agent-attribution guidance in this file.
