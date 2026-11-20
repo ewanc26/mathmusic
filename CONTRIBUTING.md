@@ -26,4 +26,4 @@ Audio import, microphone recording and MP3 export need **ffmpeg** on the system.
 
 ## Licence
 
-AGPL-3.0 (see [LICENSE](LICENSE)). Contributions are accepted under the same terms. Contributions are accepted under the same terms.
+AGPL-3.0 (see [LICENSE](LICENSE)). Contributions are accepted under the same terms.
