@@ -1,26 +1,29 @@
 # Contributing to mathmusic
 
-A DAW where every clip, sound, envelope, automation and effect is a formula, with optional publishing to plyr.fm.
+A DAW where everything is a graph. Each clip plays a curve `y = f(x)` read as time, sounds, envelopes, automation and effects are formulas too, and every one is drawn while you edit. `mathmusic serve` opens the DAW at http://127.0.0.1:8765. Thank you for wanting to help!
 
-## Project context
-
-- Primary languages: Python (3.10+) for the engine; SvelteKit (Svelte 5, TypeScript, Tailwind v4) for the UI in `frontend/`
-- Default branch: main
-
-## Setup
+## Getting started
 
 ```bash
-uv venv .venv
-uv pip install --python .venv/bin/python -e ".[plot,publish,dev]"
-cd frontend && pnpm install
+mathmusic serve          # open the DAW at http://127.0.0.1:8765
 ```
 
-## Before submitting changes
+Audio import, microphone recording and MP3 export need **ffmpeg** on the system. Projects are JSON under `~/.ewanc26/mathmusic/projects` (or `$MATHMUSIC_HOME`), samples converted to 44.1 kHz stereo and stored by content in `assets/`.
 
-- Read the README, `pyproject.toml`, `frontend/package.json`, and nearby code before choosing commands.
-- Run `.venv/bin/python -m pytest` and check the result before opening a pull request.
-- For UI changes, run `pnpm check` and `pnpm build` in `frontend/`, commit the rebuilt `src/mathmusic/web/`, and check the affected view with `mathmusic serve --no-browser` (or `pnpm dev` against it).
-- Format the frontend with `pnpm format`, or install the pre-commit hook: `pre-commit install`.
-- Keep commits focused and explain compatibility or operational impact.
-- Use conventional commit messages (`feat:`, `fix:`, `docs:`, `chore:`, `test:`).
-- Open changes through a pull request with verification results.
+## Notes for this project
+
+- **The formula is the data.** Clips, sounds, envelopes, automation and effect parameters are all expressions in `x` (the beat); prefer extending the expression surface over adding special-case fields.
+- The metronome click is a Web Audio sine burst and is **never part of the render or the exports** — keep it out of the signal path.
+- Undo/redo must cover every editing change; a feature without undo is unfinished.
+- Effect chains exist per track and on the master, with buses as effect-return tracks — keep parameter automation (press **ƒ**) working for every new effect parameter.
+- Exports (WAV/MP3/MIDI) must match what the playhead plays; the MIDI export uses the same notes with program choices resembling each sound.
+
+## Before opening a PR
+
+- The documented build and tests pass, and you ran them yourself.
+- Conventional commits; one focused PR per change.
+- AI-assisted PRs are welcome; stand behind every line.
+
+## Licence
+
+AGPL-3.0 (see [LICENSE](LICENSE)). Contributions are accepted under the same terms. Contributions are accepted under the same terms.
