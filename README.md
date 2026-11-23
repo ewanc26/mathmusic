@@ -133,6 +133,9 @@ cd frontend && pnpm check           # the interface's types
 ## Licence
 
 AGPL-3.0-or-later. See [LICENSE](LICENSE).
+
+Copyright (C) 2026 Ewan Croft (ewanc26).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and the checks required before opening a pull request.

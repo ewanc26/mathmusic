@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "mathmusic"
 version = "0.1.0"
 description = "Turn mathematical curves into music, and optionally publish the track to plyr.fm."
+authors = [{ name = "Ewan Croft (ewanc26)" }]
 requires-python = ">=3.10"
 license = { text = "AGPL-3.0-or-later" }
 dependencies = ["numpy>=1.26", "scipy>=1.11"]
