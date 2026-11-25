@@ -1,6 +1,6 @@
 <!-- Text or a formula, edited live; the model is not written back while typing. -->
 <script lang="ts">
-  import { daw } from "$lib/daw.svelte";
+  import { daw } from "#lib/daw.svelte.ts";
   import Field from "./Field.svelte";
 
   interface Props {

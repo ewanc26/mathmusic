@@ -14,7 +14,7 @@
 </script>
 
 <script lang="ts">
-  import { daw } from "$lib/daw.svelte";
+  import { daw } from "#lib/daw.svelte.ts";
   import AutomationEditor from "./AutomationEditor.svelte";
   import ClipEditor from "./ClipEditor.svelte";
   import EffectChain from "./EffectChain.svelte";

@@ -7,14 +7,14 @@
 <script lang="ts">
   import { Circle, FileAudio, Maximize2, Minus, Plus, Square } from "@lucide/svelte";
   import { SvelteMap } from "svelte/reactivity";
-  import { addTrack, importAudio } from "$lib/actions.svelte";
-  import { plot } from "$lib/api";
-  import { recorder } from "$lib/recorder.svelte";
-  import { daw, newClip, newTrack } from "$lib/daw.svelte";
-  import { transport } from "$lib/transport.svelte";
-  import type { Clip, PlotData, Track } from "$lib/types";
-  import { clamp, color, prepareCanvas, trackColor } from "$lib/util";
-  import { TRACK_HEIGHT, view } from "$lib/view.svelte";
+  import { addTrack, importAudio } from "#lib/actions.svelte.ts";
+  import { plot } from "#lib/api.ts";
+  import { recorder } from "#lib/recorder.svelte.ts";
+  import { daw, newClip, newTrack } from "#lib/daw.svelte.ts";
+  import { transport } from "#lib/transport.svelte.ts";
+  import type { Clip, PlotData, Track } from "#lib/types.ts";
+  import { clamp, color, prepareCanvas, trackColor } from "#lib/util.ts";
+  import { TRACK_HEIGHT, view } from "#lib/view.svelte.ts";
   import Canvas from "./Canvas.svelte";
   import TrackHeader from "./TrackHeader.svelte";
 

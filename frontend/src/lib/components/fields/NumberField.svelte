@@ -1,7 +1,7 @@
 <!-- A number edited live (one undo step per change), validated against its range. -->
 <script lang="ts">
-  import { daw } from "$lib/daw.svelte";
-  import { fmtNumber } from "$lib/util";
+  import { daw } from "#lib/daw.svelte.ts";
+  import { fmtNumber } from "#lib/util.ts";
   import Field from "./Field.svelte";
 
   interface Props {

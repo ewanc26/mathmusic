@@ -1,8 +1,8 @@
 <!-- Gain and pan automation for the selected track: formulas of the beat, plotted over the song. -->
 <script lang="ts">
-  import { daw } from "$lib/daw.svelte";
-  import { transport } from "$lib/transport.svelte";
-  import type { Automation } from "$lib/types";
+  import { daw } from "#lib/daw.svelte.ts";
+  import { transport } from "#lib/transport.svelte.ts";
+  import type { Automation } from "#lib/types.ts";
   import Errors from "./fields/Errors.svelte";
   import TextField from "./fields/TextField.svelte";
   import FormulaPlot from "./FormulaPlot.svelte";

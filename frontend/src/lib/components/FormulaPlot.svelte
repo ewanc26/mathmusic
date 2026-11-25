@@ -1,8 +1,8 @@
 <!-- y = f(x) for any formula, sampled by the server and drawn live while it is edited. -->
 <script lang="ts">
-  import { plot } from "$lib/api";
-  import { drawFormula, drawMessage } from "$lib/draw";
-  import type { PlotData } from "$lib/types";
+  import { plot } from "#lib/api.ts";
+  import { drawFormula, drawMessage } from "#lib/draw.ts";
+  import type { PlotData } from "#lib/types.ts";
   import Canvas from "./Canvas.svelte";
 
   interface Props {

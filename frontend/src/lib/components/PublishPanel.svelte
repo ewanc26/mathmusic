@@ -1,7 +1,7 @@
 <!-- Upload the current mix to plyr.fm (music on AT Protocol). -->
 <script lang="ts">
-  import { api } from "$lib/api";
-  import { daw } from "$lib/daw.svelte";
+  import { api } from "#lib/api.ts";
+  import { daw } from "#lib/daw.svelte.ts";
   import Field from "./fields/Field.svelte";
 
   let title = $state("");

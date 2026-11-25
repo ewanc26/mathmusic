@@ -1,6 +1,6 @@
 <!-- Master volume, normalisation, loop region and the master effects chain. -->
 <script lang="ts">
-  import { daw } from "$lib/daw.svelte";
+  import { daw } from "#lib/daw.svelte.ts";
   import EffectChain from "./EffectChain.svelte";
   import Check from "./fields/Check.svelte";
   import NumberField from "./fields/NumberField.svelte";

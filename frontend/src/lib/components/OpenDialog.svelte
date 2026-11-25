@@ -1,11 +1,11 @@
 <!-- Lists saved projects and opens one. -->
 <script lang="ts">
   import { X } from "@lucide/svelte";
-  import { openProject } from "$lib/actions.svelte";
-  import { api } from "$lib/api";
-  import { daw } from "$lib/daw.svelte";
-  import { toast } from "$lib/toast.svelte";
-  import type { Project } from "$lib/types";
+  import { openProject } from "#lib/actions.svelte.ts";
+  import { api } from "#lib/api.ts";
+  import { daw } from "#lib/daw.svelte.ts";
+  import { toast } from "#lib/toast.svelte.ts";
+  import type { Project } from "#lib/types.ts";
 
   let dialog = $state<HTMLDialogElement>();
   let folder = $state("");

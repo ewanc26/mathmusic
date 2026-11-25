@@ -1,11 +1,11 @@
 <!-- The selected clip: a curve (formula, sampling, pitch mapping, graph) or an audio sample. -->
 <script lang="ts">
-  import { deleteClip, duplicateClip, splitClip } from "$lib/actions.svelte";
-  import { daw } from "$lib/daw.svelte";
-  import { drawClipGraph, drawPeaks, type Geometry } from "$lib/draw";
-  import { transport } from "$lib/transport.svelte";
-  import type { Sample } from "$lib/types";
-  import { noteName, parseNote, pitchTable, trackColor } from "$lib/util";
+  import { deleteClip, duplicateClip, splitClip } from "#lib/actions.svelte.ts";
+  import { daw } from "#lib/daw.svelte.ts";
+  import { drawClipGraph, drawPeaks, type Geometry } from "#lib/draw.ts";
+  import { transport } from "#lib/transport.svelte.ts";
+  import type { Sample } from "#lib/types.ts";
+  import { noteName, parseNote, pitchTable, trackColor } from "#lib/util.ts";
   import Canvas from "./Canvas.svelte";
   import Check from "./fields/Check.svelte";
   import Errors from "./fields/Errors.svelte";

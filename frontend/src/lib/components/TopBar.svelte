@@ -1,10 +1,10 @@
 <!-- Project, history, transport, tempo/key/time signature, export and status. -->
 <script lang="ts">
   import { CircleHelp, Metronome, Pause, Play, Redo2, Repeat, SkipBack, Undo2 } from "@lucide/svelte";
-  import { exportMidi, newProject, save, toggleLoop } from "$lib/actions.svelte";
-  import { daw } from "$lib/daw.svelte";
-  import { transport } from "$lib/transport.svelte";
-  import { fmtPosition, fmtTime, parseNote, safeFilename } from "$lib/util";
+  import { exportMidi, newProject, save, toggleLoop } from "#lib/actions.svelte.ts";
+  import { daw } from "#lib/daw.svelte.ts";
+  import { transport } from "#lib/transport.svelte.ts";
+  import { fmtPosition, fmtTime, parseNote, safeFilename } from "#lib/util.ts";
 
   let { onopen, onhelp }: { onopen: () => void; onhelp: () => void } = $props();
 

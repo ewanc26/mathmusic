@@ -1,9 +1,9 @@
 <!-- Channel strips: meters that follow the playhead, faders, pan, mute and solo. -->
 <script lang="ts">
-  import { daw } from "$lib/daw.svelte";
-  import { drawMeter, levelAt } from "$lib/draw";
-  import { transport } from "$lib/transport.svelte";
-  import { trackColor } from "$lib/util";
+  import { daw } from "#lib/daw.svelte.ts";
+  import { drawMeter, levelAt } from "#lib/draw.ts";
+  import { transport } from "#lib/transport.svelte.ts";
+  import { trackColor } from "#lib/util.ts";
   import Canvas from "./Canvas.svelte";
 
   const beat = $derived(transport.playing ? transport.beat : null);
