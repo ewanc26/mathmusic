@@ -5,30 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <title>mathmusic</title>
-    <link href="./_app/immutable/entry/start.DZC-Hrvw.js" rel="modulepreload">
-		<link href="./_app/immutable/chunks/cy9NvAMr.js" rel="modulepreload">
-		<link href="./_app/immutable/chunks/DH3Onmi8.js" rel="modulepreload">
-		<link href="./_app/immutable/entry/app.BFwDUu4M.js" rel="modulepreload">
-		<link href="./_app/immutable/chunks/xihTtKlq.js" rel="modulepreload">
-		<link href="./_app/immutable/nodes/0.DEf9gONT.js" rel="modulepreload">
-		<link href="./_app/immutable/nodes/2.DkxpOGk-.js" rel="modulepreload">
+    <link href="./_app/immutable/entry/start.RaEf3xkI.js" rel="modulepreload">
+		<link href="./_app/immutable/entry/payload.DSmR2FwN.js" rel="modulepreload">
+		<link href="./_app/immutable/chunks/DclECHGd.js" rel="modulepreload">
+		<link href="./_app/immutable/chunks/YAUzT0Sl.js" rel="modulepreload">
+		<link href="./_app/immutable/chunks/CRegFt2M.js" rel="modulepreload">
+		<link href="./_app/immutable/chunks/CmIR2zbD.js" rel="modulepreload">
+		<link href="./_app/immutable/entry/app.CAgpPiNk.js" rel="modulepreload">
+		<link href="./_app/immutable/nodes/0.DeXN3Dco.js" rel="modulepreload">
+		<link href="./_app/immutable/nodes/2.BIJZjk1Z.js" rel="modulepreload">
 		
-		<link href="./_app/immutable/assets/0.B7KPPNn8.css" rel="stylesheet">
+		<link href="./_app/immutable/assets/0.DTiT6ISd.css" rel="stylesheet">
   </head>
   <body data-sveltekit-preload-data="hover">
     <div style="display: contents">
 			<script>
 				{
 					__sveltekit_1vzi1g = {
-						base: new URL(".", location).pathname.slice(0, -1)
+						base: new URL(".", location).pathname.slice(0, -1),
+						version: "0.1.0"
 					};
 
 					const element = document.currentScript.parentElement;
 
-					Promise.all([
-						import("./_app/immutable/entry/start.DZC-Hrvw.js"),
-						import("./_app/immutable/entry/app.BFwDUu4M.js")
-					]).then(([kit, app]) => {
+					import("./_app/immutable/entry/start.RaEf3xkI.js").then(async (kit) => {
+						kit.init(__sveltekit_1vzi1g);
+						const app = await import("./_app/immutable/entry/app.CAgpPiNk.js");
 						kit.start(app, element);
 					});
 				}

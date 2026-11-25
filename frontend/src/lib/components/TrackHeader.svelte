@@ -1,10 +1,10 @@
 <!-- One track's header beside its lane: name, mute/solo, delete, volume and pan. -->
 <script lang="ts">
   import { X } from "@lucide/svelte";
-  import { daw } from "$lib/daw.svelte";
-  import { TRACK_HEIGHT } from "$lib/view.svelte";
-  import type { Track } from "$lib/types";
-  import { fmtDb, fmtPan, trackColor } from "$lib/util";
+  import { daw } from "#lib/daw.svelte.ts";
+  import { TRACK_HEIGHT } from "#lib/view.svelte.ts";
+  import type { Track } from "#lib/types.ts";
+  import { fmtDb, fmtPan, trackColor } from "#lib/util.ts";
 
   let { track, index }: { track: Track; index: number } = $props();
 

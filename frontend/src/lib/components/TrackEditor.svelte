@@ -1,8 +1,8 @@
 <!-- The selected track's sound (waveform, instrument or formula), envelope and mix settings. -->
 <script lang="ts">
   import { X } from "@lucide/svelte";
-  import { daw } from "$lib/daw.svelte";
-  import type { Track } from "$lib/types";
+  import { daw } from "#lib/daw.svelte.ts";
+  import type { Track } from "#lib/types.ts";
   import Check from "./fields/Check.svelte";
   import Errors from "./fields/Errors.svelte";
   import Field from "./fields/Field.svelte";

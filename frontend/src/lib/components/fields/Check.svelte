@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { daw } from "$lib/daw.svelte";
+  import { daw } from "#lib/daw.svelte.ts";
 
   interface Props {
     label: string;

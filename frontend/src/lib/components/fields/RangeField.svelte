@@ -1,6 +1,6 @@
 <!-- A slider edited live; optionally logarithmic (e.g. filter cutoff). -->
 <script lang="ts">
-  import { daw } from "$lib/daw.svelte";
+  import { daw } from "#lib/daw.svelte.ts";
   import Field from "./Field.svelte";
 
   interface Props {

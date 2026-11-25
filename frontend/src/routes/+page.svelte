@@ -10,21 +10,21 @@
     save,
     splitClip,
     toggleLoop,
-  } from "$lib/actions.svelte";
-  import { api } from "$lib/api";
-  import { recorder } from "$lib/recorder.svelte";
-  import Arrangement from "$lib/components/Arrangement.svelte";
-  import HelpDialog from "$lib/components/HelpDialog.svelte";
-  import OpenDialog from "$lib/components/OpenDialog.svelte";
-  import Panel, { TABS, type Tab } from "$lib/components/Panel.svelte";
-  import Toast from "$lib/components/Toast.svelte";
-  import TopBar from "$lib/components/TopBar.svelte";
-  import { daw } from "$lib/daw.svelte";
-  import { toast } from "$lib/toast.svelte";
-  import { transport } from "$lib/transport.svelte";
-  import type { Catalogue, Project, Status } from "$lib/types";
-  import { isTyping } from "$lib/util";
-  import { view } from "$lib/view.svelte";
+  } from "#lib/actions.svelte.ts";
+  import { api } from "#lib/api.ts";
+  import { recorder } from "#lib/recorder.svelte.ts";
+  import Arrangement from "#lib/components/Arrangement.svelte";
+  import HelpDialog from "#lib/components/HelpDialog.svelte";
+  import OpenDialog from "#lib/components/OpenDialog.svelte";
+  import Panel, { TABS, type Tab } from "#lib/components/Panel.svelte";
+  import Toast from "#lib/components/Toast.svelte";
+  import TopBar from "#lib/components/TopBar.svelte";
+  import { daw } from "#lib/daw.svelte.ts";
+  import { toast } from "#lib/toast.svelte.ts";
+  import { transport } from "#lib/transport.svelte.ts";
+  import type { Catalogue, Project, Status } from "#lib/types.ts";
+  import { isTyping } from "#lib/util.ts";
+  import { view } from "#lib/view.svelte.ts";
 
   let tab = $state<Tab>("clip");
   let expressionInput = $state<HTMLInputElement>();

@@ -1,8 +1,8 @@
 <!-- An effects chain (a track's or the master's): cards run top to bottom. -->
 <script lang="ts">
   import { ArrowDown, ArrowUp, X } from "@lucide/svelte";
-  import { daw } from "$lib/daw.svelte";
-  import type { Effect, RenderError } from "$lib/types";
+  import { daw } from "#lib/daw.svelte.ts";
+  import type { Effect, RenderError } from "#lib/types.ts";
   import Check from "./fields/Check.svelte";
   import Errors from "./fields/Errors.svelte";
   import ParamControl from "./ParamControl.svelte";

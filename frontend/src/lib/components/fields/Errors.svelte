@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { RenderError } from "$lib/types";
+  import type { RenderError } from "#lib/types.ts";
 
   let { errors }: { errors: RenderError[] } = $props();
 </script>
